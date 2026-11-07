@@ -1,4 +1,6 @@
 "use client";
+import Link from "next/link";
+import { useTerminalFeeds } from "./hooks/use-terminal-feeds";
 import { useRouter } from "next/navigation";
 import MacroComparison from "./components/macro-comparison";
 import InteractiveChart from "./components/interactive-chart";
@@ -44,12 +46,6 @@ const navigation = [
   { id: "fx", label: "Devises & marchés", icon: ChartNoAxesCombined },
   { id: "watchlist", label: "Ma liste de suivi", icon: Star },
 ] as const;
-const empty: TerminalData = {
-  news: { status: "error", data: [], fetchedAt: "" },
-  calendar: { status: "error", data: [], fetchedAt: "" },
-  macro: { status: "error", data: {}, fetchedAt: "" },
-  fx: { status: "error", data: null, fetchedAt: "" },
-};
 const number = (n: number, d = 2) =>
   new Intl.NumberFormat("fr-FR", {
     maximumFractionDigits: d,
@@ -155,12 +151,12 @@ function EmptyState({
 export default function Terminal() {
   const router = useRouter();
   const [view, setView] = useState<View>("overview");
-  const [data, setData] = useState<TerminalData>(empty);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, refresh, refreshAt } = useTerminalFeeds();
   const [demo, setDemo] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [saved, setSaved] = useState<string[]>(["USA", "EMU", "JPN"]);
   const [region, setRegion] = useState("Toutes les régions");
   const [newsCategory, setNewsCategory] = useState("Toutes");
@@ -175,43 +171,6 @@ export default function Terminal() {
   const [amount, setAmount] = useState("1000");
   const [newsLimit, setNewsLimit] = useState(12);
   const [showChart, setShowChart] = useState(false);
-  const [refreshAt, setRefreshAt] = useState("");
-  const refresh = useCallback(
-    async (sections = "news,calendar,fx,macro".split(",")) => {
-      await Promise.all(
-        sections.map(async (section) => {
-          try {
-            const response = await fetch(`/api/terminal?section=${section}`);
-            if (!response.ok) throw new Error();
-            const result = await response.json();
-            setData((old) => ({ ...old, [section]: result }));
-          } catch {
-            setData((old) => ({
-              ...old,
-              [section]: {
-                ...old[section as keyof TerminalData],
-                status: "error",
-                error: "Connexion indisponible",
-              },
-            }));
-          }
-        }),
-      );
-      setLoading(false);
-      setRefreshAt(new Date().toISOString());
-    },
-    [],
-  );
-  useEffect(() => {
-    refresh();
-    const intervals = [
-      setInterval(() => refresh(["news"]), 120000),
-      setInterval(() => refresh(["calendar"]), 300000),
-      setInterval(() => refresh(["fx"]), 3600000),
-      setInterval(() => refresh(["macro"]), 86400000),
-    ];
-    return () => intervals.forEach(clearInterval);
-  }, [refresh]);
   useEffect(() => {
     setDemo(sessionStorage.getItem("macro-demo") === "true");
     setNow(new Date());
@@ -236,6 +195,7 @@ export default function Terminal() {
         setModal(null);
         setSearchOpen(false);
         setShowChart(false);
+        setSidebar(false);
       }
     };
     window.addEventListener("keydown", key);
@@ -277,7 +237,10 @@ export default function Terminal() {
   }, [searchOpen, modal, showChart]);
   const live = useMemo(() => (demo ? demoData() : data), [demo, data]);
   const fx = live.fx.data;
-  const healthy = Object.values(live).filter((x) => x.status === "ok").length;
+  const healthy = Object.values(live).filter(
+    (x) => x.status === "ok" && !x.stale,
+  ).length;
+  const cached = Object.values(live).some((x) => x.stale);
   const toggleSave = (code: string) => {
     setSaved((old) => {
       const next = old.includes(code)
@@ -287,10 +250,26 @@ export default function Terminal() {
       return next;
     });
   };
+  useEffect(() => {
+    const sync = () => {
+      const candidate = new URLSearchParams(window.location.search).get("vue");
+      setView(
+        navigation.some((n) => n.id === candidate)
+          ? (candidate as View)
+          : "overview",
+      );
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
   const go = (v: View) => {
+    window.history.pushState(null, "", v === "overview" ? "/" : `/?vue=${v}`);
+    window.scrollTo({ top: 0, behavior: "instant" });
     setView(v);
     setSidebar(false);
     setQuery("");
+    setRegion("Toutes les régions");
   };
   const getSeries = (b: string, q: string) =>
     fx?.history
@@ -448,12 +427,14 @@ export default function Terminal() {
         />
         <div className="calendar-toolbar">
           <div className="calendar-date">
-            <button
-              aria-label="Jour précédent"
-              onClick={() => setDateOffset((v) => v - 1)}
-            >
-              <ChevronLeft size={14} />
-            </button>
+            {full && (
+              <button
+                aria-label="Jour précédent"
+                onClick={() => setDateOffset((v) => v - 1)}
+              >
+                <ChevronLeft size={14} />
+              </button>
+            )}
             <button
               onClick={() => {
                 setDateOffset(0);
@@ -465,10 +446,32 @@ export default function Terminal() {
                     weekday: "long",
                     day: "numeric",
                     month: "short",
+                    timeZone: "Europe/Paris",
                   })
                 : "Cette semaine"}
               <ChevronDown size={12} />
             </button>
+            {full && today && (
+              <input
+                className="calendar-date-input"
+                type="date"
+                aria-label="Choisir la date du calendrier"
+                value={today.toISOString().slice(0, 10)}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  const baseDate = new Date(
+                    `${new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" })}T12:00:00Z`,
+                  );
+                  setDateOffset(
+                    Math.round(
+                      (Date.parse(`${e.target.value}T12:00:00Z`) -
+                        baseDate.getTime()) /
+                        86400000,
+                    ),
+                  );
+                }}
+              />
+            )}
             {full && (
               <button
                 aria-label="Jour suivant"
@@ -870,6 +873,9 @@ export default function Terminal() {
           )}
         </div>
         <div className="sidebar-bottom">
+          <Link className="data-quality-link" href="/donnees">
+            <Activity size={14} /> État des indicateurs
+          </Link>
           <button onClick={() => setModal("sources")}>
             <CircleHelp size={16} /> Sources & méthodologie{" "}
             <ArrowUpRight size={12} />
@@ -888,6 +894,7 @@ export default function Terminal() {
             <button
               className="mobile-menu"
               aria-label="Ouvrir le menu"
+              aria-expanded={sidebar}
               onClick={() => setSidebar(!sidebar)}
             >
               <LayoutDashboard size={18} />
@@ -896,7 +903,13 @@ export default function Terminal() {
             <ChevronRight size={12} />
             <strong>{navigation.find((n) => n.id === view)?.label}</strong>
           </div>
-          <button className="global-search" onClick={() => setSearchOpen(true)}>
+          <button
+            className="global-search"
+            onClick={() => {
+              setSearchQuery("");
+              setSearchOpen(true);
+            }}
+          >
             <Search size={14} />
             <span>Rechercher un pays, une devise…</span>
             <kbd>⌘ K</kbd>
@@ -997,7 +1010,6 @@ export default function Terminal() {
               <button
                 className="outline-button"
                 onClick={() => {
-                  setLoading(true);
                   refresh();
                 }}
                 disabled={loading}
@@ -1038,7 +1050,9 @@ export default function Terminal() {
               <span>
                 <strong>
                   {healthy === 0
-                    ? "Connexion aux sources limitée."
+                    ? cached
+                      ? "Dernières données conservées · actualisation indisponible."
+                      : "Connexion aux sources limitée."
                     : `${healthy}/4 sources disponibles.`}
                 </strong>{" "}
               </span>
@@ -1219,7 +1233,10 @@ export default function Terminal() {
                     Vous obtenez
                     <div className="conversion-result">
                       <strong>
-                        {rate(base, quote) && Number.isFinite(Number(amount))
+                        {rate(base, quote) &&
+                        amount.trim() !== "" &&
+                        Number.isFinite(Number(amount)) &&
+                        Number(amount) >= 0
                           ? number(Number(amount) * rate(base, quote)!)
                           : "—"}
                       </strong>
@@ -1343,8 +1360,8 @@ export default function Terminal() {
               <input
                 autoFocus
                 placeholder="Rechercher un pays, une devise ou une banque…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
               <button
                 aria-label="Fermer la recherche"
@@ -1359,7 +1376,7 @@ export default function Terminal() {
                 .filter((c) =>
                   `${c.name} ${c.currency} ${c.bank}`
                     .toLowerCase()
-                    .includes(query.toLowerCase()),
+                    .includes(searchQuery.toLowerCase()),
                 )
                 .map((c) => (
                   <button
@@ -1367,7 +1384,7 @@ export default function Terminal() {
                     onClick={() => {
                       router.push(`/devises/${c.currency}`);
                       setSearchOpen(false);
-                      setQuery("");
+                      setSearchQuery("");
                     }}
                   >
                     <span className="flag">{c.flag}</span>
@@ -1481,9 +1498,11 @@ export default function Terminal() {
                             : "muted"
                         }
                       >
-                        {data[s.key as keyof TerminalData].status === "ok"
-                          ? "Connecté"
-                          : "Indisponible"}
+                        {data[s.key as keyof TerminalData].stale
+                          ? "Dernières données en cache"
+                          : data[s.key as keyof TerminalData].status === "ok"
+                            ? "Connecté"
+                            : "Indisponible"}
                       </span>
                     </div>
                     <a href={s.url} target="_blank" rel="noopener noreferrer">

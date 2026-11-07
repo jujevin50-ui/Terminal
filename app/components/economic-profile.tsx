@@ -1,13 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useState, useEffect, useCallback } from "react";
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  RefreshCw,
-  Star,
-  Download,
-} from "lucide-react";
+import { useTerminalFeeds } from "../hooks/use-terminal-feeds";
+import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ArrowLeft, ArrowUpRight, RefreshCw, Star } from "lucide-react";
 import {
   countries,
   indicators,
@@ -80,28 +76,20 @@ const banks: Record<string, string> = {
   ZAR: "https://www.resbank.co.za",
 };
 export default function EconomicProfile({ country: c }: { country: Country }) {
-  const [data, setData] = useState<TerminalData | null>(null);
+  const router = useRouter();
+  const { data, loading, refresh } = useTerminalFeeds();
   const [tab, setTab] = useState("synthesis");
   const [chosen, setChosen] = useState("growth");
   const [saved, setSaved] = useState(false);
   const [demo, setDemo] = useState(false);
-  const [loading, setLoading] = useState(true);
+
   const [quote, setQuote] = useState(c.currency === "USD" ? "EUR" : "USD");
   const [fxDays, setFxDays] = useState(65);
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    await Promise.all(
-      ["macro", "fx", "calendar", "news"].map(async (key) => {
-        try {
-          const response = await fetch(`/api/terminal?section=${key}`);
-          if (!response.ok) throw new Error();
-          const result = await response.json();
-          setData((old) => ({ ...old, [key]: result }) as TerminalData);
-        } catch {}
-      }),
-    );
-    setLoading(false);
-  }, []);
+  useEffect(() => {
+    setQuote(c.currency === "USD" ? "EUR" : "USD");
+    setTab("synthesis");
+    setChosen("growth");
+  }, [c.currency]);
   useEffect(() => {
     setDemo(sessionStorage.getItem("macro-demo") === "true");
     try {
@@ -113,11 +101,9 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
         ).includes(c.code),
       );
     } catch {}
-    refresh();
-    const t = setInterval(refresh, 300000);
-    return () => clearInterval(t);
-  }, [refresh, c.code]);
-  const live = demo ? demoData() : data;
+  }, [c.code]);
+  const sample = useMemo(() => (demo ? demoData() : null), [demo]);
+  const live = sample ?? data;
   const macro = live?.macro?.data ?? {};
   const observations = macro[c.code] ?? {};
   const fx = live?.fx?.data;
@@ -150,10 +136,11 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
   function metric(key: string) {
     const d = indicators.find((i) => i.key === key)!;
     const o = observations[key];
-    const h = o?.history ?? [];
+    const h = o?.history?.filter((p) => +p.year <= +o.year) ?? [];
     const previous = h.at(-2);
     return (
       <button
+        aria-pressed={chosen === key}
         className={`metric-detail ${chosen === key ? "selected" : ""}`}
         key={key}
         onClick={() => setChosen(key)}
@@ -165,14 +152,18 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
         <strong className="mono">
           {o ? formatValue(o.value, d.unit, true) : "—"}
         </strong>
-        <small>{o?.year ?? (loading ? "Chargement…" : "Non publié")}</small>
+        <small>
+          {o?.year ??
+            (loading
+              ? "Chargement…"
+              : live?.macro?.diagnostics?.find((d) => d.key === key)?.status ===
+                  "error"
+                ? "Erreur source"
+                : "Non publié")}
+        </small>
         <p>
           {o && previous ? (
-            <span
-              className={
-                o.value - previous.value >= 0 ? "positive" : "negative"
-              }
-            >
+            <span className="metric-change">
               {formatValue(
                 o.value - previous.value,
                 d.unit === "%" ? "" : d.unit,
@@ -194,13 +185,13 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
         <Link className="profile-brand" href="/">
           Macro<span>.</span>
         </Link>
-        <Link href="/" className="profile-back">
+        <Link href="/?vue=countries" className="profile-back">
           <ArrowLeft size={14} /> Terminal
         </Link>
         <select
           aria-label="Changer d’économie"
           value={c.currency}
-          onChange={(e) => window.location.assign(`/devises/${e.target.value}`)}
+          onChange={(e) => router.push(`/devises/${e.target.value}`)}
         >
           {countries.map((k) => (
             <option key={k.code} value={k.currency}>
@@ -231,7 +222,7 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
             </button>
             <button
               className="outline-button"
-              onClick={refresh}
+              onClick={() => refresh()}
               disabled={loading}
             >
               <RefreshCw size={14} className={loading ? "spinning" : ""} />{" "}
@@ -240,10 +231,20 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
           </div>
         </div>
         {demo && <div className="notice">Démonstration · données fictives</div>}
+        {!demo && Object.values(data).some((feed) => feed.stale) && (
+          <div className="notice">
+            Actualisation indisponible · dernières observations conservées.
+          </div>
+        )}
+        <Link className="data-quality-link" href="/donnees">
+          Disponibilité des données et années de référence{" "}
+          <ArrowUpRight size={12} />
+        </Link>
         <nav className="profile-tabs">
           {groups.map((g) => (
             <button
               key={g.id}
+              aria-pressed={tab === g.id}
               className={tab === g.id ? "active" : ""}
               onClick={() => {
                 setTab(g.id);
@@ -259,9 +260,10 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
             <div className="detail-metrics">{group.keys.map(metric)}</div>
             <div className="profile-chart-grid">
               <MacroComparison
-                key={`${tab}-${chosen}`}
+                key={c.code}
                 macro={macro}
-                initialIndicator={chosen}
+                selectedIndicator={chosen}
+                onIndicatorChange={setChosen}
                 initialCountries={[
                   c.code,
                   ...["USA", "EMU", "JPN"]
@@ -480,7 +482,7 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
                     </time>
                     <strong>{e.title}</strong>
                     <span
-                      className={e.impact === "High" ? "positive" : "muted"}
+                      className={e.impact === "High" ? "impact-high" : "muted"}
                     >
                       {e.impact === "High"
                         ? "Fort"
@@ -516,7 +518,9 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
                     <div className="news-meta">
                       <span>{n.source}</span>
                       <time>
-                        {new Date(n.date).toLocaleDateString("fr-FR")}
+                        {new Date(n.date).toLocaleDateString("fr-FR", {
+                          timeZone: "Europe/Paris",
+                        })}
                       </time>
                     </div>
                     <a

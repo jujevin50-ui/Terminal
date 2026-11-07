@@ -1,5 +1,11 @@
-import { getNews, getCalendar, getFx, getMacro } from "@/lib/feeds";
-export const maxDuration = 30;
+import {
+  getNews,
+  getCalendar,
+  getFx,
+  getMacro,
+  getIndicatorCatalog,
+} from "@/lib/feeds";
+export const maxDuration = 60;
 export async function GET(request: Request) {
   const section = new URL(request.url).searchParams.get("section");
   const handlers = {
@@ -7,6 +13,7 @@ export async function GET(request: Request) {
     calendar: getCalendar,
     fx: getFx,
     macro: getMacro,
+    catalog: getIndicatorCatalog,
   };
   if (!section || !(section in handlers))
     return Response.json({ error: "Section inconnue" }, { status: 400 });

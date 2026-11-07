@@ -41,3 +41,18 @@ test("La macro sélectionne la dernière observation non nulle et préserve zér
   );
   assert.throws(() => parseMacro([{}, null]));
 });
+test("Les taux invalides, nuls et négatifs sont exclus", async () => {
+  const { normalizeRates } = await import("./data");
+  assert.deepEqual(
+    normalizeRates({
+      EUR: 0.92,
+      USD: 1,
+      GBP: 0,
+      JPY: -1,
+      CHF: "0.9",
+      AUD: Infinity,
+    }),
+    { EUR: 0.92, USD: 1 },
+  );
+  assert.throws(() => normalizeRates({ USD: 0 }));
+});

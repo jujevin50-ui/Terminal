@@ -331,6 +331,8 @@ export type Feed<T> = {
   data: T;
   fetchedAt: string;
   error?: string;
+  stale?: boolean;
+  diagnostics?: IndicatorDiagnostic[];
 };
 export type TerminalData = {
   news: Feed<News[]>;
@@ -375,7 +377,14 @@ export function parseMacro(body: unknown): Macro {
     if (typeof row.value !== "number" || !Number.isFinite(row.value)) continue;
     const key = indicators.find((i) => i.id === row.indicator?.id)?.key;
     const country = row.countryiso3code;
-    if (!key || !country) continue;
+    if (
+      !key ||
+      !country ||
+      !countries.some((c) => c.code === country) ||
+      !/^\d{4}$/.test(String(row.date)) ||
+      Number(row.date) > new Date().getFullYear()
+    )
+      continue;
     result[country] ??= {};
     const history = result[country][key]?.history ?? [];
     if (!history.some((p) => p.year === String(row.date)))
@@ -393,4 +402,37 @@ export function parseMacro(body: unknown): Macro {
       };
   }
   return result;
+}
+
+export type IndicatorDiagnostic = {
+  key: string;
+  code: string;
+  status: "ok" | "empty" | "error";
+  countries: string[];
+  observations: number;
+  updatedAt?: string;
+  error?: string;
+};
+export type CatalogRow = {
+  code: string;
+  verified: boolean;
+  name?: string;
+  definition?: string;
+  unit?: string;
+  error?: string;
+};
+export function normalizeRates(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Cours invalides");
+  const rates = Object.fromEntries(
+    Object.entries(value).filter(
+      ([code, n]) =>
+        /^[A-Z]{3}$/.test(code) &&
+        typeof n === "number" &&
+        Number.isFinite(n) &&
+        n > 0,
+    ),
+  ) as Record<string, number>;
+  if (!Object.keys(rates).length) throw new Error("Aucun cours valide");
+  return { ...rates, USD: 1 };
 }

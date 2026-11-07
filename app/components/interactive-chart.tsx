@@ -1,6 +1,19 @@
 "use client";
-import { useId, useMemo, useState, useEffect, useRef } from "react";
+import {
+  useId,
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  type PointerEvent,
+} from "react";
 import { Download, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  axisPrecision,
+  datePositions,
+  nearestPoint,
+  visibleWindow,
+} from "@/lib/chart";
 export type ChartSeries = {
   id: string;
   label: string;
@@ -10,83 +23,148 @@ export type ChartSeries = {
 export function formatValue(n: number, unit = "%", compact = false) {
   return (
     new Intl.NumberFormat("fr-FR", {
-      maximumFractionDigits: unit === "$" ? 0 : 2,
+      maximumFractionDigits: compact
+        ? 2
+        : unit === "$"
+          ? 0
+          : ["%", "", "indice"].includes(unit)
+            ? 2
+            : 5,
       ...(compact ? { notation: "compact" as const } : {}),
-    }).format(n) +
-    (unit === "%" ? " %" : unit === "$" ? " $" : unit ? ` ${unit}` : "")
+    }).format(n) + (unit ? ` ${unit}` : "")
   );
 }
-export default function InteractiveChart({
-  series,
-  unit = "%",
-  height = 300,
-  label = "Comparaison historique",
-}: {
+type Props = {
   series: ChartSeries[];
   unit?: string;
   height?: number;
   label?: string;
-}) {
+};
+export default function InteractiveChart(props: Props) {
+  const signature = props.series
+    .map((s) => `${s.id}:${s.points.map((p) => p.date).join(",")}`)
+    .join("|");
+  return <ChartPlot key={signature} {...props} />;
+}
+function ChartPlot({
+  series,
+  unit = "%",
+  height = 300,
+  label = "Comparaison historique",
+}: Props) {
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
+  const tooltip = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(800);
+  const [canvasHeight, setCanvasHeight] = useState(height);
+  const [tooltipSize, setTooltipSize] = useState({ width: 190, height: 100 });
   useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const observer = new ResizeObserver((entries) =>
-      setWidth(Math.max(280, entries[0].contentRect.width)),
-    );
-    observer.observe(element);
+    const el = container.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(Math.max(200, entry.contentRect.width));
+      setCanvasHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const plotWidth = width - 100;
-
   const [hidden, setHidden] = useState<string[]>([]);
   const [hover, setHover] = useState<number | null>(null);
   const [windowSize, setWindowSize] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const allDates = useMemo(
+  const [start, setStart] = useState(0);
+  const [pointerY, setPointerY] = useState(100);
+  const normalized = useMemo(
     () =>
-      [...new Set(series.flatMap((s) => s.points.map((p) => p.date)))].sort(),
+      series.map((s) => ({
+        ...s,
+        points: s.points
+          .filter((p) => Number.isFinite(p.value))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+      })),
     [series],
   );
-  const size = Math.min(allDates.length, windowSize || allDates.length);
-  const end = Math.max(size, allDates.length - offset);
-  const dates = allDates.slice(Math.max(0, end - size), end);
-  const active = series.filter((s) => !hidden.includes(s.id));
+  const allDates = useMemo(
+    () =>
+      [
+        ...new Set(normalized.flatMap((s) => s.points.map((p) => p.date))),
+      ].sort(),
+    [normalized],
+  );
+  const window = visibleWindow(allDates.length, windowSize, start);
+  const dates = allDates.slice(window.start, window.end);
+  const active = normalized.filter((s) => !hidden.includes(s.id));
   const values = active.flatMap((s) =>
     s.points.filter((p) => dates.includes(p.date)).map((p) => p.value),
   );
-  const lo = Math.min(...values),
-    hi = Math.max(...values);
-  const pad = (hi - lo) * 0.12 || Math.abs(lo) * 0.1 || 1;
+  const lo = values.length ? Math.min(...values) : 0,
+    hi = values.length ? Math.max(...values) : 1;
+  const pad = (hi - lo) * 0.12 || Math.abs(lo) * 0.03 || 0.1;
   const min = lo - pad,
     max = hi + pad;
-  const x = (i: number) => 40 + (i / (dates.length - 1 || 1)) * plotWidth;
+  const left = 18,
+    right = width - 76;
+  const positions = datePositions(dates, left, right);
   const y = (v: number) => 24 + ((max - v) / (max - min)) * 232;
   const lookup = active.map((s) => ({
     ...s,
     map: new Map(s.points.map((p) => [p.date, p.value])),
   }));
-  const changeZoom = (inward: boolean) => {
-    setWindowSize(
-      Math.max(
-        2,
-        Math.min(
-          allDates.length,
-          Math.round((size || allDates.length) * (inward ? 0.7 : 1.4)),
-        ),
-      ),
+  const selectedDate = hover === null ? undefined : dates[hover];
+  useEffect(() => {
+    const el = tooltip.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setTooltipSize({
+        width: entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width,
+        height: entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height,
+      });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [selectedDate, active.length]);
+  function hit(e: PointerEvent<SVGSVGElement>) {
+    const matrix = e.currentTarget.getScreenCTM();
+    if (!matrix) return;
+    const point = new DOMPoint(e.clientX, e.clientY).matrixTransform(
+      matrix.inverse(),
     );
-    setOffset(0);
+    if (
+      point.x < left - 5 ||
+      point.x > right + 5 ||
+      point.y < 12 ||
+      point.y > 262 ||
+      !values.length
+    ) {
+      setHover(null);
+      return;
+    }
+    setHover(nearestPoint(positions, point.x));
+    setPointerY(
+      (point.y / 300) * e.currentTarget.getBoundingClientRect().height,
+    );
+  }
+  function zoom(inward: boolean) {
+    const size = Math.min(
+      allDates.length,
+      Math.max(2, Math.round(window.size * (inward ? 0.7 : 1.4))),
+    );
+    const anchor = window.start + (hover ?? Math.floor(window.size / 2));
+    const next = visibleWindow(
+      allDates.length,
+      size,
+      Math.round(anchor - size / 2),
+    );
+    setWindowSize(size);
+    setStart(next.start);
     setHover(null);
-  };
+  }
   function download() {
     const rows = [
-      ["Date", ...series.map((s) => s.label)],
-      ...allDates.map((date) => [
+      ["Date", ...active.map((s) => `${s.label}${unit ? ` (${unit})` : ""}`)],
+      ...dates.map((date) => [
         date,
-        ...series.map(
+        ...active.map(
           (s) => s.points.find((p) => p.date === date)?.value ?? "",
         ),
       ]),
@@ -109,138 +187,143 @@ export default function InteractiveChart({
     a.href = url;
     a.download = "macro-historique.csv";
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  const selectedX = hover === null ? 0 : (positions[hover] ?? 0);
+  const tooltipLeft = Math.max(
+    4,
+    Math.min(
+      width - tooltipSize.width - 4,
+      selectedX + (selectedX > width / 2 ? -tooltipSize.width - 15 : 15),
+    ),
+  );
+  const tooltipTop = Math.max(
+    4,
+    Math.min(
+      canvasHeight - tooltipSize.height - 4,
+      pointerY - tooltipSize.height / 2,
+    ),
+  );
   return (
     <div className="interactive-chart">
       <div className="chart-tools">
-        <span>{label}</span>
+        <span>
+          {label}
+          {unit && <small className="chart-unit"> · {unit}</small>}
+        </span>
         <div>
           <button
+            title="Zoom avant"
             aria-label="Zoom avant"
-            disabled={dates.length <= 2}
-            onClick={() => changeZoom(true)}
+            disabled={window.size <= 2 || !values.length}
+            onClick={() => zoom(true)}
           >
-            <ZoomIn size={14} />
+            <ZoomIn size={15} />
           </button>
           <button
+            title="Zoom arrière"
             aria-label="Zoom arrière"
-            disabled={dates.length === allDates.length}
-            onClick={() => changeZoom(false)}
+            disabled={window.size === allDates.length}
+            onClick={() => zoom(false)}
           >
-            <ZoomOut size={14} />
+            <ZoomOut size={15} />
           </button>
           <button
+            title="Réinitialiser"
             aria-label="Réinitialiser le graphique"
             onClick={() => {
               setWindowSize(0);
-              setOffset(0);
+              setStart(0);
               setHidden([]);
               setHover(null);
             }}
           >
-            <RotateCcw size={13} />
+            <RotateCcw size={14} />
           </button>
           <button
+            title="Exporter la période et les séries visibles"
             aria-label="Exporter le graphique en CSV"
-            disabled={!allDates.length}
+            disabled={!values.length}
             onClick={download}
           >
-            <Download size={14} />
+            <Download size={15} />
           </button>
         </div>
       </div>
       <div ref={container} className="interactive-canvas" style={{ height }}>
         <svg
+          ref={svgRef}
           viewBox={`0 0 ${width} 300`}
           preserveAspectRatio="none"
           role="img"
           aria-label={label}
           tabIndex={0}
           onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+            if (
+              ["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key) &&
+              dates.length
+            ) {
               e.preventDefault();
               setHover((i) =>
-                Math.max(
-                  0,
-                  Math.min(
-                    dates.length - 1,
-                    (i ?? 0) + (e.key === "ArrowRight" ? 1 : -1),
-                  ),
-                ),
+                e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? dates.length - 1
+                    : Math.max(
+                        0,
+                        Math.min(
+                          dates.length - 1,
+                          (i ?? (e.key === "ArrowRight" ? -1 : dates.length)) +
+                            (e.key === "ArrowRight" ? 1 : -1),
+                        ),
+                      ),
               );
+              setPointerY(80);
             }
+            if (e.key === "Escape") setHover(null);
           }}
-          onPointerMove={(e) => {
-            const bounds = e.currentTarget.getBoundingClientRect();
-            setHover(
-              Math.max(
-                0,
-                Math.min(
-                  dates.length - 1,
-                  Math.round(
-                    (((e.clientX - bounds.left) / bounds.width) * width - 40) /
-                      plotWidth,
-                  ),
-                ),
-              ),
-            );
+          onBlur={() => setHover(null)}
+          onPointerMove={hit}
+          onPointerLeave={(e) => {
+            if (e.pointerType !== "touch") setHover(null);
           }}
-          onPointerLeave={() => setHover(null)}
           onPointerDown={(e) => {
-            e.currentTarget.focus();
-            const bounds = e.currentTarget.getBoundingClientRect();
-            setHover(
-              Math.max(
-                0,
-                Math.min(
-                  dates.length - 1,
-                  Math.round(
-                    (((e.clientX - bounds.left) / bounds.width) * width - 40) /
-                      plotWidth,
-                  ),
-                ),
-              ),
-            );
+            e.currentTarget.focus({ preventScroll: true });
+            hit(e);
           }}
         >
           <defs>
             <clipPath id={id}>
-              <rect x="39" y="5" width={plotWidth + 4} height="258" />
+              <rect x={left - 4} y="10" width={right - left + 8} height="252" />
             </clipPath>
           </defs>
-          {[0, 1, 2, 3, 4].map((i) => {
-            const v = max - ((max - min) * i) / 4;
-            return (
-              <g key={i}>
-                <line
-                  x1="40"
-                  x2={width - 60}
-                  y1={24 + i * 58}
-                  y2={24 + i * 58}
-                  stroke="#2c3540"
-                  strokeDasharray="3 5"
-                />
-                <text
-                  x={width - 50}
-                  y={29 + i * 58}
-                  fill="#8493a6"
-                  fontSize="11"
-                >
-                  {values.length
-                    ? new Intl.NumberFormat("fr-FR", {
-                        notation: "compact",
-                        maximumFractionDigits: 1,
-                      }).format(v)
-                    : "—"}
-                </text>
-              </g>
-            );
-          })}
+          {[0, 1, 2, 3, 4].map((i) => (
+            <g key={i}>
+              <line
+                x1={left}
+                x2={right}
+                y1={24 + i * 58}
+                y2={24 + i * 58}
+                stroke="#2c3540"
+                strokeDasharray="3 5"
+              />
+              <text x={right + 10} y={29 + i * 58} fill="#9aabbe" fontSize="11">
+                {values.length
+                  ? new Intl.NumberFormat("fr-FR", {
+                      notation:
+                        Math.max(Math.abs(min), Math.abs(max)) >= 100000
+                          ? "compact"
+                          : "standard",
+                      maximumFractionDigits: axisPrecision(min, max),
+                    }).format(max - ((max - min) * i) / 4)
+                  : "—"}
+              </text>
+            </g>
+          ))}
           {values.length > 0 && min < 0 && max > 0 && (
             <line
-              x1="40"
-              x2={width - 60}
+              x1={left}
+              x2={right}
               y1={y(0)}
               y2={y(0)}
               stroke="#69788a"
@@ -259,26 +342,27 @@ export default function InteractiveChart({
                   }
                   const command = connected ? "L" : "M";
                   connected = true;
-                  return `${command}${x(i)},${y(v)}`;
+                  return `${command}${positions[i]},${y(v)}`;
                 })
                 .join(" ");
               return (
-                <g key={s.id}>
+                <g key={s.id} data-series={s.id}>
                   <path
                     d={d}
                     stroke={s.color}
-                    strokeWidth="2.5"
+                    strokeWidth="2"
                     fill="none"
                     vectorEffect="non-scaling-stroke"
                   />
-                  {dates.map((d, i) => {
-                    const v = s.map.get(d);
+                  {dates.map((date, i) => {
+                    const v = s.map.get(date);
                     return v === undefined ? null : (
                       <circle
-                        key={d}
-                        cx={x(i)}
+                        data-date={date}
+                        key={date}
+                        cx={positions[i]}
                         cy={y(v)}
-                        r={dates.length < 25 ? 3 : 1}
+                        r={dates.length < 25 ? 2.5 : 0}
                         fill={s.color}
                       />
                     );
@@ -290,57 +374,121 @@ export default function InteractiveChart({
           {dates
             .filter(
               (_, i) =>
+                i === dates.length - 1 ||
                 i %
                   Math.max(
                     1,
-                    Math.ceil(dates.length / (width < 500 ? 4 : 7)),
+                    Math.ceil(dates.length / (width < 500 ? 3 : 6)),
                   ) ===
-                0,
+                  0,
+            )
+            .filter(
+              (date) =>
+                date === dates[0] ||
+                date === dates.at(-1) ||
+                (positions[dates.indexOf(date)] - left >= 45 &&
+                  right - positions[dates.indexOf(date)] >= 45),
             )
             .map((date) => (
               <text
                 key={date}
-                x={x(dates.indexOf(date))}
+                x={positions[dates.indexOf(date)]}
                 y="286"
-                textAnchor="middle"
-                fill="#8493a6"
+                textAnchor={
+                  date === dates[0]
+                    ? "start"
+                    : date === dates.at(-1)
+                      ? "end"
+                      : "middle"
+                }
+                fill="#9aabbe"
                 fontSize="11"
               >
-                {date.length === 4 ? date : date.slice(5)}
+                {date.length === 4
+                  ? date
+                  : new Date(`${date}T12:00:00Z`).toLocaleDateString("fr-FR", {
+                      day: "2-digit",
+                      month: "short",
+                      timeZone: "UTC",
+                    })}
               </text>
             ))}
-          {hover !== null && dates[hover] && (
-            <line
-              x1={x(hover)}
-              x2={x(hover)}
-              y1="15"
-              y2="260"
-              stroke="#acb8c7"
-              strokeDasharray="4 3"
-            />
+          {selectedDate && values.length > 0 && (
+            <g className="chart-selection" data-date={selectedDate}>
+              <line
+                x1={selectedX}
+                x2={selectedX}
+                y1="15"
+                y2="260"
+                stroke="#d8e0eb"
+                strokeDasharray="4 3"
+              />
+              {lookup.map((s) => {
+                const v = s.map.get(selectedDate);
+                return v === undefined ? null : (
+                  <g key={s.id}>
+                    <circle
+                      cx={selectedX}
+                      cy={y(v)}
+                      r="7"
+                      fill={s.color}
+                      opacity=".2"
+                    />
+                    <circle
+                      cx={selectedX}
+                      cy={y(v)}
+                      r="4"
+                      fill={s.color}
+                      stroke="#101720"
+                      strokeWidth="2"
+                    />
+                  </g>
+                );
+              })}
+            </g>
           )}
         </svg>
         {!values.length && (
-          <div className="chart-unavailable">
-            <span>Aucune observation disponible</span>
+          <div className="chart-unavailable" role="status">
+            <span>
+              {series.length === 0
+                ? "Sélectionnez une économie"
+                : active.length === 0
+                  ? "Toutes les séries sont masquées"
+                  : "Aucune observation disponible"}
+            </span>
+            {active.length === 0 && normalized.length > 0 && (
+              <button className="text-button" onClick={() => setHidden([])}>
+                Réafficher les courbes
+              </button>
+            )}
           </div>
         )}
-        {hover !== null && dates[hover] && values.length > 0 && (
+        {selectedDate && values.length > 0 && (
           <div
+            ref={tooltip}
             className="chart-tooltip"
-            style={{
-              ...(hover / (dates.length - 1 || 1) > 0.5
-                ? { left: 8 }
-                : { right: 8 }),
-            }}
+            style={{ left: tooltipLeft, top: tooltipTop }}
           >
-            <strong>{dates[hover]}</strong>
+            <strong>
+              {selectedDate.length === 4
+                ? selectedDate
+                : new Date(`${selectedDate}T12:00:00Z`).toLocaleDateString(
+                    "fr-FR",
+                    {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    },
+                  )}
+            </strong>
             {lookup.map((s) => (
               <div key={s.id}>
                 <span style={{ color: s.color }}>● {s.label}</span>
                 <b>
-                  {s.map.has(dates[hover])
-                    ? formatValue(s.map.get(dates[hover])!, unit)
+                  {s.map.has(selectedDate)
+                    ? formatValue(s.map.get(selectedDate)!, unit)
                     : "—"}
                 </b>
               </div>
@@ -349,11 +497,11 @@ export default function InteractiveChart({
         )}
       </div>
       <div className="chart-legend">
-        {series.map((s) => (
+        {normalized.map((s) => (
           <button
             aria-pressed={!hidden.includes(s.id)}
             key={s.id}
-            style={{ opacity: hidden.includes(s.id) ? 0.35 : 1 }}
+            style={{ opacity: hidden.includes(s.id) ? 0.4 : 1 }}
             onClick={() => {
               setHidden((h) =>
                 h.includes(s.id) ? h.filter((k) => k !== s.id) : [...h, s.id],
@@ -366,17 +514,19 @@ export default function InteractiveChart({
           </button>
         ))}
       </div>
-      {size < allDates.length && (
+      {window.size < allDates.length && (
         <label className="chart-pan">
-          Déplacer la période
+          <span>
+            {dates[0]} — {dates.at(-1)}
+          </span>
           <input
             aria-label="Déplacer la période du graphique"
             type="range"
             min="0"
-            max={allDates.length - size}
-            value={offset}
+            max={allDates.length - window.size}
+            value={window.start}
             onChange={(e) => {
-              setOffset(+e.target.value);
+              setStart(+e.target.value);
               setHover(null);
             }}
           />

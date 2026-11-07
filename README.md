@@ -15,7 +15,7 @@ Ouvrir http://localhost:3000. `npm run build` prépare la production ; `npm star
 
 ## Vercel
 
-Importer ce dépôt, sélectionner **Next.js**, conserver la racine du dépôt et les commandes par défaut (`npm run build`). Aucune variable d’environnement n’est requise. Les routes `/api/terminal?section=news|calendar|fx|macro` fonctionnent côté serveur sur Vercel. Aucun déploiement ou push automatique n’a été effectué.
+Importer ce dépôt, sélectionner **Next.js**, conserver la racine du dépôt et les commandes par défaut (`npm run build`). Aucune variable d’environnement n’est requise. Les routes `/api/terminal?section=news|calendar|fx|macro` fonctionnent côté serveur sur Vercel.
 
 ## Sources et fraîcheur
 
@@ -42,4 +42,14 @@ L’accueil compare les économies derrière les devises sur la croissance, l’
 
 Les routes `/devises/USD`, `/devises/EUR`, etc. présentent sept onglets : synthèse, croissance et PIB, prix et emploi, commerce et capitaux, finances publiques, structure économique et devise. Elles disposent de tableaux historiques et de comparaisons personnalisables, de performances de change, d’un agenda par devise et de liens vers les publications officielles.
 
-Les 22 séries de la Banque mondiale sont demandées par lots de six avec vingt ans d’historique ; les lots réussis sont conservés en cas d’échec partiel. Les séries manquantes restent absentes. La dette concerne l’administration centrale et le taux réel concerne un taux débiteur ajusté du déflateur du PIB, pas le taux directeur. Les valeurs annuelles des différents pays peuvent porter sur des années différentes.
+Les 22 séries de la Banque mondiale sont demandées séparément, avec huit requêtes simultanées au maximum et vingt ans d’historique. Une erreur est isolée à sa série. Les séries non publiées restent absentes. En cas de panne, les dernières observations reçues restent visibles et sont signalées comme données en cache. La dette concerne l’administration centrale et le taux réel concerne un taux débiteur ajusté du déflateur du PIB, pas le taux directeur. Les valeurs annuelles des différents pays peuvent porter sur des années différentes.
+
+## Contrôle des données et tests de régression
+
+`/donnees` détaille la couverture des 22 séries pour les 12 économies, les années reçues, le nombre d’observations, les erreurs par série et la validation des codes dans le catalogue WDI officiel. La validation du catalogue confirme l’identifiant, pas l’existence d’une observation pour chaque pays. Une réponse valide sans observation est distinguée d’un échec HTTP ou d’une réponse incohérente.
+
+`npm run build && npm run test:e2e` lance les tests navigateur sur le port 3100 (Chromium du système s’il est disponible, sinon installer Chromium avec Playwright). Ces tests utilisent des réponses sources simulées, explicitement distinctes d’un audit des chiffres publiés. Ils contrôlent chaque point rendu à quatre largeurs, le survol après zoom et transformation CSS, les 22 sélecteurs, les 12 pages, la synchronisation avec l’historique, le retour navigateur, les filtres, l’export et la conservation des données après erreur réseau.
+
+`npm run audit:data -- --site=https://terminal-ten-lemon.vercel.app` compare les valeurs et années du site aux observations officielles pour les 22 séries × 12 économies, valide les codes dans le catalogue officiel, puis écrit `/tmp/macro-data-audit.json`. Ce contrôle nécessite l’accès réseau réel aux domaines de Vercel et de la Banque mondiale ; un test avec des données simulées ne le remplace pas. Pour Node.js 24 dans un environnement à proxy, utiliser le réglage pris en charge `NODE_USE_ENV_PROXY=1` avec la configuration TLS de l’environnement. Le processus échoue si des codes ne peuvent pas être confirmés ou si une série renvoie une erreur.
+
+Les graphiques utilisent le même repère SVG pour tracer les points et convertir la position du pointeur. Les dates conservent leur espacement temporel. L’indexation base 100 utilise une année commune positive. L’export porte sur les séries et la période visibles.

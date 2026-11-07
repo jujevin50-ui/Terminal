@@ -4,6 +4,7 @@ import {
   indicators,
   parseCalendar,
   parseMacro,
+  normalizeRates,
   safeUrl,
   type Feed,
   type News,
@@ -110,16 +111,25 @@ export async function getFx(): Promise<Feed<Fx | null>> {
         3600,
       ).then((r) => r.json()),
     ]);
-    if (!latest.rates || !latest.date || !historical.rates)
+    if (
+      !latest.rates ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(latest.date) ||
+      !historical.rates
+    )
       throw new Error("FX invalide");
+    const latestRates = normalizeRates(latest.rates);
+    historical.rates[latest.date] = latestRates;
     return {
       date: latest.date,
       base: "USD",
-      rates: { ...latest.rates, USD: 1 },
+      rates: latestRates,
       history: Object.entries(
         historical.rates as Record<string, Record<string, number>>,
       )
-        .map(([date, rates]) => ({ date, rates: { ...rates, USD: 1 } }))
+        .filter(
+          ([date]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= latest.date,
+        )
+        .map(([date, rates]) => ({ date, rates: normalizeRates(rates) }))
         .sort((a, b) => a.date.localeCompare(b.date)),
     };
   }, null);
@@ -138,34 +148,78 @@ export async function getCalendar() {
     [],
   );
 }
-export async function getMacro() {
-  return feed(async () => {
-    const codes = countries.map((c) => c.code).join(";");
-    const groups = Array.from(
-      { length: Math.ceil(indicators.length / 6) },
-      (_, i) => indicators.slice(i * 6, i * 6 + 6),
-    );
-    const results = await Promise.allSettled(
-      groups.map(async (group) => {
-        const ids = group.map((i) => i.id).join(";");
-        const body = await (
-          await remote(
-            `https://api.worldbank.org/v2/country/${codes}/indicator/${ids}?source=2&format=json&per_page=20000&date=${new Date().getFullYear() - 20}:${new Date().getFullYear()}`,
-            86400,
+export async function getMacro(): Promise<Feed<import("./data").Macro>> {
+  const codes = countries.map((c) => c.code).join(";");
+  const merged: import("./data").Macro = {};
+  const diagnostics: import("./data").IndicatorDiagnostic[] = [];
+  // Separate requests isolate unavailable series; concurrency limits upstream load.
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: 8 }, async () => {
+      while (cursor < indicators.length) {
+        const indicator = indicators[cursor++];
+        try {
+          const url = `https://api.worldbank.org/v2/country/${codes}/indicator/${indicator.id}?source=2&format=json&per_page=1000&date=${new Date().getFullYear() - 20}:${new Date().getFullYear()}`;
+          const body = await (await remote(url, 86400)).json();
+          if (
+            !Array.isArray(body) ||
+            !body[0] ||
+            body[0].message ||
+            !(Array.isArray(body[1]) || body[1] === null)
           )
-        ).json();
-        if (body?.[0]?.pages > 1) throw new Error("Réponse tronquée");
-        return parseMacro(body);
-      }),
-    );
-    const merged: import("./data").Macro = {};
-    for (const result of results)
-      if (result.status === "fulfilled")
-        for (const [country, observations] of Object.entries(result.value))
-          merged[country] = { ...merged[country], ...observations };
-    if (!Object.keys(merged).length) throw new Error("Macro indisponible");
-    return merged;
-  }, {});
+            throw new Error("Réponse de la Banque mondiale invalide");
+          if (Number(body[0].pages) > 1) throw new Error("Réponse incomplète");
+          const rows = body[1] ?? [];
+          if (
+            rows.some(
+              (r: { indicator?: { id?: string } }) =>
+                r.indicator?.id !== indicator.id,
+            )
+          )
+            throw new Error("Code de série incohérent");
+          const parsed = parseMacro([body[0], rows]);
+          for (const [country, observations] of Object.entries(parsed))
+            merged[country] = { ...merged[country], ...observations };
+          diagnostics.push({
+            key: indicator.key,
+            code: indicator.id,
+            status: Object.keys(parsed).length ? "ok" : "empty",
+            countries: Object.keys(parsed),
+            observations: Object.values(parsed).reduce(
+              (sum, series) =>
+                sum + (series[indicator.key]?.history?.length ?? 0),
+              0,
+            ),
+            updatedAt: body[0].lastupdated,
+          });
+        } catch (error) {
+          diagnostics.push({
+            key: indicator.key,
+            code: indicator.id,
+            status: "error",
+            countries: [],
+            observations: 0,
+            error:
+              error instanceof Error ? error.message : "Erreur de chargement",
+          });
+        }
+      }
+    }),
+  );
+  diagnostics.sort(
+    (a, b) =>
+      indicators.findIndex((i) => i.key === a.key) -
+      indicators.findIndex((i) => i.key === b.key),
+  );
+  return {
+    status: diagnostics.some((d) => d.status !== "error") ? "ok" : "error",
+    data: merged,
+    diagnostics,
+    fetchedAt: new Date().toISOString(),
+    ...(diagnostics.some((d) => d.status !== "error")
+      ? {}
+      : { error: "Aucune série reçue de la Banque mondiale" }),
+  };
 }
 export async function getTerminalData(): Promise<TerminalData> {
   const [news, calendar, fx, macro] = await Promise.all([
@@ -175,4 +229,57 @@ export async function getTerminalData(): Promise<TerminalData> {
     getMacro(),
   ]);
   return { news, calendar, fx, macro };
+}
+
+export async function getIndicatorCatalog(): Promise<
+  Feed<import("./data").CatalogRow[]>
+> {
+  let cursor = 0;
+  const rows: import("./data").CatalogRow[] = [];
+  await Promise.all(
+    Array.from({ length: 8 }, async () => {
+      while (cursor < indicators.length) {
+        const indicator = indicators[cursor++];
+        try {
+          const body = await (
+            await remote(
+              `https://api.worldbank.org/v2/indicator/${indicator.id}?format=json`,
+              86400,
+            )
+          ).json();
+          const item = Array.isArray(body?.[1])
+            ? body[1].find(
+                (r: { id: string }) =>
+                  r.id === indicator.id &&
+                  String(
+                    (r as unknown as { source: { id: string } }).source?.id,
+                  ) === "2",
+              )
+            : null;
+          if (!item) throw new Error("Code absent du catalogue WDI");
+          rows.push({
+            code: indicator.id,
+            verified: true,
+            name: item.name,
+            definition: item.sourceNote,
+            unit: item.unit,
+          });
+        } catch (error) {
+          rows.push({
+            code: indicator.id,
+            verified: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Vérification impossible",
+          });
+        }
+      }
+    }),
+  );
+  return {
+    status: rows.some((r) => r.verified) ? "ok" : "error",
+    data: rows,
+    fetchedAt: new Date().toISOString(),
+  };
 }

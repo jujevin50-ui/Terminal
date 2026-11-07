@@ -1,6 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { countries, indicators, type Macro } from "@/lib/data";
+import { comparisonPoints } from "@/lib/comparison";
 import InteractiveChart, { formatValue } from "./interactive-chart";
 export const palette = [
   "#edb477",
@@ -22,49 +23,49 @@ export default function MacroComparison({
   initialCountries = ["USA", "EMU", "GBR", "JPN"],
   title = "Comparateur macroéconomique",
   compact = false,
+  selectedIndicator,
+  onIndicatorChange,
 }: {
   macro: Macro;
   initialIndicator?: string;
   initialCountries?: string[];
   title?: string;
   compact?: boolean;
+  selectedIndicator?: string;
+  onIndicatorChange?: (indicator: string) => void;
 }) {
-  const [indicator, setIndicator] = useState(initialIndicator);
+  const [internalIndicator, setIndicator] = useState(initialIndicator);
+  const indicator = selectedIndicator ?? internalIndicator;
   const [chosen, setChosen] = useState(initialCountries);
   const [period, setPeriod] = useState(10);
   const [indexed, setIndexed] = useState(false);
+  useEffect(() => setIndexed(false), [indicator]);
   const definition = indicators.find((i) => i.key === indicator)!;
-  const series = useMemo(
-    () =>
-      chosen.map((code) => {
-        const c = countries.find((c) => c.code === code)!;
-        const o = macro[code]?.[indicator];
-        const points = (o?.history ?? (o ? [o] : [])).filter(
-          (p) => +p.year >= new Date().getFullYear() - period,
-        );
-        const first = points[0]?.value;
-        return {
-          id: code,
-          label: c.currency,
-          color: palette[countries.indexOf(c)],
-          points: points.map((p) => ({
-            date: p.year,
-            value: indexed && first ? (p.value / first) * 100 : p.value,
-          })),
-        };
-      }),
-    [chosen, macro, indicator, period, indexed],
+  const comparison = useMemo(
+    () => comparisonPoints(macro, chosen, indicator, period, indexed),
+    [macro, chosen, indicator, period, indexed],
   );
+  const series = comparison.series.map((s) => {
+    const c = countries.find((c) => c.code === s.code)!;
+    return {
+      id: s.code,
+      label: c.currency,
+      color: palette[countries.indexOf(c)],
+      points: s.points.map((p) => ({ date: p.year, value: p.value })),
+    };
+  });
   return (
     <section
       className={`panel macro-comparison ${compact ? "compact-comparison" : ""}`}
     >
       <div className="panel-title">
         <div>
-          <h2>{title}</h2>
+          <h2>{definition.label} · comparaison</h2>
           <span className="tiny-tag">MACRO</span>
         </div>
-        <span className="muted">{definition.unit || "Nombre"}</span>
+        <span className="muted">
+          {indexed ? "Indice" : definition.unit || "Nombre"}
+        </span>
       </div>
       <div className="comparison-controls">
         <select
@@ -72,6 +73,7 @@ export default function MacroComparison({
           value={indicator}
           onChange={(e) => {
             setIndicator(e.target.value);
+            onIndicatorChange?.(e.target.value);
             setIndexed(false);
           }}
         >
@@ -84,6 +86,8 @@ export default function MacroComparison({
         <div className="segmented">
           {[5, 10, 20].map((p) => (
             <button
+              aria-pressed={period === p}
+              title={`${p} dernières années disponibles`}
               className={period === p ? "active" : ""}
               key={p}
               onClick={() => setPeriod(p)}
@@ -99,6 +103,7 @@ export default function MacroComparison({
             )
           }
           title="Indexation disponible pour les séries en niveau"
+          aria-pressed={indexed}
           className={`index-button ${indexed ? "active" : ""}`}
           onClick={() => setIndexed((v) => !v)}
         >
@@ -130,8 +135,8 @@ export default function MacroComparison({
       </div>
       <InteractiveChart
         series={series}
-        unit={indexed ? "" : definition.unit}
-        label={definition.label}
+        unit={indexed ? "indice" : definition.unit}
+        label={`${definition.label}${indexed ? " · base 100" : ""}`}
         height={compact ? 230 : 310}
       />
       <div className="comparison-values">
@@ -157,7 +162,9 @@ export default function MacroComparison({
       <div className="panel-footnote">
         {definition.detail}
         {indexed
-          ? " · Base 100 à la première observation non nulle de chaque série"
+          ? comparison.baseYear
+            ? ` · Base 100 commune en ${comparison.baseYear}`
+            : " · Aucune année commune avec une base positive"
           : ""}
       </div>
     </section>

@@ -61,7 +61,7 @@ test("Une panne HTTP reste explicite dans chaque catégorie, sans données ficti
     global.fetch = original;
   }
 });
-test("La macro garde les lots réussis et leurs historiques en cas de panne partielle", async () => {
+test("La macro garde les séries réussies et leurs historiques en cas de panne partielle", async () => {
   const original = global.fetch;
   const urls: string[] = [];
   try {
@@ -89,14 +89,102 @@ test("La macro garde les lots réussis et leurs historiques en cas de panne part
       ]);
     };
     const result = await getMacro();
-    assert.equal(urls.length, 4);
+    assert.equal(urls.length, 22);
     assert.equal(result.status, "ok");
     assert.equal(result.data.USA.growth.value, 0);
     assert.deepEqual(result.data.USA.growth.history, [
       { year: "2023", value: 2.1 },
       { year: "2024", value: 0 },
     ]);
-    assert.ok(urls.every((url) => url.includes("per_page=20000")));
+    assert.ok(urls.every((url) => url.includes("per_page=1000")));
+  } finally {
+    global.fetch = original;
+  }
+});
+test("Chacun des 22 codes conserve les valeurs exactes et distingue série vide et erreur", async () => {
+  const original = global.fetch;
+  const { indicators, countries } = await import("./data");
+  try {
+    global.fetch = async (input) => {
+      const url = String(input);
+      const id = url.split("/indicator/")[1].split("?")[0];
+      const index = indicators.findIndex((i) => i.id === id);
+      if (index === 20) return Response.json([{ pages: 0 }, null]);
+      if (index === 21)
+        return Response.json([{ message: [{ value: "Invalid code" }] }]);
+      return Response.json([
+        { pages: 1, lastupdated: "2026-01-01" },
+        countries.flatMap((c, j) => [
+          {
+            countryiso3code: c.code,
+            indicator: { id },
+            date: "2024",
+            value: index === 0 ? 0 : index * 10 + j,
+          },
+          {
+            countryiso3code: c.code,
+            indicator: { id },
+            date: "2023",
+            value: index * 10 + j - 1,
+          },
+        ]),
+      ]);
+    };
+    const result = await getMacro();
+    assert.equal(result.diagnostics?.length, 22);
+    for (let i = 0; i < 20; i++)
+      for (let j = 0; j < countries.length; j++)
+        assert.equal(
+          result.data[countries[j].code][indicators[i].key].value,
+          i === 0 ? 0 : i * 10 + j,
+        );
+    assert.equal(result.diagnostics?.[20].status, "empty");
+    assert.equal(result.diagnostics?.[21].status, "error");
+  } finally {
+    global.fetch = original;
+  }
+});
+test("Le catalogue confirme seulement un code WDI exact ; un autre identifiant est rejeté", async () => {
+  const original = global.fetch;
+  const { getIndicatorCatalog } = await import("./feeds");
+  try {
+    global.fetch = async (input) => {
+      const id = String(input).split("/indicator/")[1].split("?")[0];
+      return Response.json([
+        {},
+        [
+          {
+            id: id === "NY.GDP.MKTP.CD" ? "WRONG" : id,
+            source: { id: "2" },
+            name: "Official indicator",
+            unit: "",
+            sourceNote: "Definition",
+          },
+        ],
+      ]);
+    };
+    const result = await getIndicatorCatalog();
+    assert.equal(result.data.length, 22);
+    assert.equal(result.data.filter((r) => r.verified).length, 21);
+    assert.equal(
+      result.data.find((r) => r.code === "NY.GDP.MKTP.CD")?.verified,
+      false,
+    );
+  } finally {
+    global.fetch = original;
+  }
+});
+test("Une réponse valide sans observation reste distincte d’une panne de source", async () => {
+  const original = global.fetch;
+  try {
+    global.fetch = async () => Response.json([{ pages: 0 }, null]);
+    const result = await getMacro();
+    assert.equal(result.status, "ok");
+    assert.equal(
+      result.diagnostics?.filter((d) => d.status === "empty").length,
+      22,
+    );
+    assert.deepEqual(result.data, {});
   } finally {
     global.fetch = original;
   }
