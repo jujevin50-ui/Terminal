@@ -33,6 +33,11 @@ test("La macro sélectionne la dernière observation non nulle et préserve zér
     {},
     [row(2.5, "2022"), row(null, "2025"), row(0, "2024"), row(3, "2021")],
   ]);
-  assert.deepEqual(m.USA.growth, { value: 0, year: "2024" });
+  assert.equal(m.USA.growth.value, 0);
+  assert.equal(m.USA.growth.year, "2024");
+  assert.deepEqual(
+    m.USA.growth.history?.map((p) => p.year),
+    ["2021", "2022", "2024"],
+  );
   assert.throws(() => parseMacro([{}, null]));
 });

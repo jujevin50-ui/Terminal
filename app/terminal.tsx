@@ -1,4 +1,8 @@
 "use client";
+import { useRouter } from "next/navigation";
+import MacroComparison from "./components/macro-comparison";
+import InteractiveChart from "./components/interactive-chart";
+import { demoData } from "@/lib/demo";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Activity,
@@ -30,13 +34,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import {
-  countries,
-  indicators,
-  currencyFlags,
-  type TerminalData,
-  type Country,
-} from "@/lib/data";
+import { countries, currencyFlags, type TerminalData } from "@/lib/data";
 type View = "overview" | "news" | "calendar" | "countries" | "fx" | "watchlist";
 const navigation = [
   { id: "overview", label: "Vue d’ensemble", icon: LayoutDashboard },
@@ -69,118 +67,6 @@ const day = (d: string) =>
     month: "short",
     timeZone: "Europe/Paris",
   });
-function demoData(): TerminalData {
-  const now = new Date();
-  const iso = now.toISOString();
-  const rates = {
-    USD: 1,
-    EUR: 0.9213,
-    GBP: 0.7736,
-    JPY: 149.82,
-    CNY: 7.246,
-    CAD: 1.3812,
-    AUD: 1.5284,
-    CHF: 0.8804,
-    NZD: 1.6632,
-    INR: 84.12,
-    BRL: 5.72,
-    ZAR: 17.94,
-  };
-  const history = Array.from({ length: 65 }, (_, i) => {
-    const date = new Date(now);
-    date.setDate(date.getDate() - (64 - i));
-    return {
-      date: date.toISOString().slice(0, 10),
-      rates: Object.fromEntries(
-        Object.entries(rates).map(([k, v]) => [
-          k,
-          k === "USD"
-            ? 1
-            : v *
-              (1 +
-                Math.sin(i * 0.29) * 0.006 +
-                Math.cos(i * 0.71) * 0.003 +
-                (64 - i) * 0.0003),
-        ]),
-      ),
-    };
-  });
-  const titles = [
-    "Les investisseurs scrutent la trajectoire des taux avant les prochaines publications",
-    "Inflation : les prix des services restent au centre de l’attention",
-    "Zone euro : les indicateurs d’activité donnent des signaux contrastés",
-    "Le yen évolue au rythme des anticipations de politique monétaire",
-    "Les marchés obligataires se préparent aux chiffres de l’emploi",
-    "Commerce mondial : la demande asiatique sous surveillance",
-    "Les banques centrales à l’épreuve d’un cycle économique contrasté",
-    "Matières premières : l’énergie au cœur des perspectives d’inflation",
-  ];
-  const news = titles.map((title, i) => ({
-    title,
-    url: "",
-    source: "Exemple de dépêche",
-    date: new Date(+now - i * 1260000).toISOString(),
-    category: i % 3 === 1 ? "Banques centrales" : "Économie",
-  }));
-  const events = [
-    "Emploi non agricole",
-    "Taux de chômage",
-    "Indice des prix à la consommation",
-    "Discours de la présidence BCE",
-    "Confiance des consommateurs",
-    "Balance commerciale",
-    "Production industrielle",
-    "Décision de taux",
-  ];
-  const calendar = events.map((title, i) => ({
-    title,
-    country: ["USD", "USD", "EUR", "EUR", "GBP", "CNY", "JPY", "AUD"][i],
-    date: new Date(+now + (i - 2) * 3600000).toISOString(),
-    impact: i % 3 === 0 ? "High" : i % 3 === 1 ? "Medium" : "Low",
-    forecast: i === 3 ? "" : "2,8 %",
-    previous: i === 3 ? "" : "3,1 %",
-    actual: i < 2 ? "2,9 %" : "",
-  }));
-  const macro = Object.fromEntries(
-    countries.map((c, i) => [
-      c.code,
-      {
-        growth: {
-          value: [2.8, 0.9, 1.1, 0.1, 5, 1.5, 1.1, 1.3, 1, 6.5, 3.4, 0.6][i],
-          year: "2024",
-        },
-        inflation: {
-          value: [2.9, 2.4, 2.5, 2.7, 0.2, 2.4, 3.2, 1.1, 2.9, 4.9, 4.4, 4.4][
-            i
-          ],
-          year: "2024",
-        },
-        unemployment: {
-          value: [4.1, 6.3, 4.4, 2.5, 4.6, 6.4, 4.1, 4.4, 4.8, 4.2, 6.8, 32.1][
-            i
-          ],
-          year: "2024",
-        },
-        gdp: {
-          value: (i === 0 ? 29.2 : i === 1 ? 15.5 : 5.1 - i * 0.31) * 1e12,
-          year: "2024",
-        },
-        balance: { value: i % 2 ? 2.1 : -3.4, year: "2024" },
-        population: { value: (i + 1) * 16.1e6, year: "2024" },
-      },
-    ]),
-  );
-  return {
-    news: { status: "ok", data: news, fetchedAt: iso },
-    calendar: { status: "ok", data: calendar, fetchedAt: iso },
-    fx: {
-      status: "ok",
-      data: { date: iso.slice(0, 10), base: "USD", rates, history },
-      fetchedAt: iso,
-    },
-    macro: { status: "ok", data: macro, fetchedAt: iso },
-  };
-}
 function Spark({
   values,
   positive = true,
@@ -267,6 +153,7 @@ function EmptyState({
   );
 }
 export default function Terminal() {
+  const router = useRouter();
   const [view, setView] = useState<View>("overview");
   const [data, setData] = useState<TerminalData>(empty);
   const [loading, setLoading] = useState(true);
@@ -274,7 +161,6 @@ export default function Terminal() {
   const [now, setNow] = useState<Date | null>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [selected, setSelected] = useState<Country | null>(null);
   const [saved, setSaved] = useState<string[]>(["USA", "EMU", "JPN"]);
   const [region, setRegion] = useState("Toutes les régions");
   const [newsCategory, setNewsCategory] = useState("Toutes");
@@ -327,6 +213,7 @@ export default function Terminal() {
     return () => intervals.forEach(clearInterval);
   }, [refresh]);
   useEffect(() => {
+    setDemo(sessionStorage.getItem("macro-demo") === "true");
     setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 1000);
     try {
@@ -347,7 +234,6 @@ export default function Terminal() {
       }
       if (e.key === "Escape") {
         setModal(null);
-        setSelected(null);
         setSearchOpen(false);
         setShowChart(false);
       }
@@ -356,7 +242,7 @@ export default function Terminal() {
     return () => window.removeEventListener("keydown", key);
   }, []);
   useEffect(() => {
-    if (!searchOpen && !selected && !modal && !showChart) return;
+    if (!searchOpen && !modal && !showChart) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = document.querySelector<HTMLElement>("[role=dialog]");
     const selector =
@@ -388,7 +274,7 @@ export default function Terminal() {
       document.removeEventListener("keydown", trap);
       previous?.focus();
     };
-  }, [searchOpen, selected, modal, showChart]);
+  }, [searchOpen, modal, showChart]);
   const live = useMemo(() => (demo ? demoData() : data), [demo, data]);
   const fx = live.fx.data;
   const healthy = Object.values(live).filter((x) => x.status === "ok").length;
@@ -454,25 +340,16 @@ export default function Terminal() {
       e.impact === "High",
   );
   const toggleDemo = () => {
-    setDemo((v) => !v);
+    setDemo((v) => {
+      sessionStorage.setItem("macro-demo", String(!v));
+      return !v;
+    });
     setModal(null);
   };
   function renderChart(expanded = false) {
     const series = getSeries(base, quote).slice(
       -(range === "1S" ? 5 : range === "1M" ? 23 : 65),
     );
-    const values = series.map((p) => p.value);
-    const min = Math.min(...values),
-      max = Math.max(...values);
-    const pad = (max - min) * 0.2 || 0.01;
-    const y = (v: number) =>
-      205 - ((v - (min - pad)) / (max - min + pad * 2)) * 180;
-    const path = series
-      .map(
-        (p, i) =>
-          `${i ? "L" : "M"}${(i / (series.length - 1 || 1)) * 790},${y(p.value)}`,
-      )
-      .join(" ");
     const current = rate(base, quote);
     return (
       <section
@@ -534,94 +411,19 @@ export default function Terminal() {
               : "Cours de référence quotidien"}
           </span>
         </div>
-        <div className="chart">
-          <svg
-            viewBox="0 0 850 245"
-            role="img"
-            aria-label={`Historique ${base}/${quote}, ${range}`}
-            preserveAspectRatio="none"
-          >
-            <defs>
-              <linearGradient
-                id={expanded ? "area-expanded" : "area"}
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="1"
-              >
-                <stop offset="0%" stopColor="#e9aa62" stopOpacity=".24" />
-                <stop offset="100%" stopColor="#e9aa62" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            {[20, 65, 110, 155, 200].map((p, i) => (
-              <g key={p}>
-                <line
-                  x1="0"
-                  y1={p}
-                  x2="790"
-                  y2={p}
-                  stroke="#252a30"
-                  strokeDasharray="3 5"
-                />
-                <text x="804" y={p + 4} fill="#737b85" fontSize="10">
-                  {values.length
-                    ? number(max + pad - (i * (max - min + pad * 2)) / 4, 4)
-                    : "—"}
-                </text>
-              </g>
-            ))}
-            {[0, 158, 316, 474, 632, 790].map((p) => (
-              <line
-                key={p}
-                x1={p}
-                y1="10"
-                x2={p}
-                y2="205"
-                stroke="#20252b"
-                strokeDasharray="3 5"
-              />
-            ))}
-            {series.length > 1 && (
-              <>
-                <path
-                  d={`${path} L790,213 L0,213 Z`}
-                  fill={`url(#${expanded ? "area-expanded" : "area"})`}
-                />
-                <path d={path} stroke="#e9aa62" strokeWidth="2" fill="none" />
-                <circle cx="790" cy={y(values.at(-1)!)} r="4" fill="#efb574" />
-              </>
-            )}
-            {series
-              .filter(
-                (_, i) => i % Math.max(1, Math.floor(series.length / 5)) === 0,
-              )
-              .slice(0, 6)
-              .map((p, i) => (
-                <text
-                  key={p.date}
-                  x={i * 153}
-                  y="240"
-                  fill="#737b85"
-                  fontSize="10"
-                >
-                  {day(p.date)}
-                </text>
-              ))}
-          </svg>
-          {!values.length && (
-            <div className="chart-unavailable">
-              <Activity size={24} />
-              <span>
-                {loading
-                  ? "Chargement des cours…"
-                  : "Cours momentanément indisponibles"}
-              </span>
-              <small>
-                Source : Frankfurter · références des banques centrales
-              </small>
-            </div>
-          )}
-        </div>
+        <InteractiveChart
+          series={[
+            {
+              id: base + quote,
+              label: `${base}/${quote}`,
+              color: "#edb477",
+              points: series,
+            },
+          ]}
+          unit={quote}
+          label={`${base}/${quote}`}
+          height={expanded ? 400 : 260}
+        />
         <div className="chart-footer">
           <span>
             <span className="orange-dot" /> {base}/{quote} · clôtures
@@ -844,10 +646,11 @@ export default function Terminal() {
                 return (
                   <tr
                     key={c.code}
-                    onClick={() => setSelected(c)}
+                    onClick={() => router.push(`/devises/${c.currency}`)}
                     tabIndex={0}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") setSelected(c);
+                      if (e.key === "Enter")
+                        router.push(`/devises/${c.currency}`);
                     }}
                   >
                     <td>
@@ -1008,17 +811,17 @@ export default function Terminal() {
   return (
     <div className="terminal-shell">
       <aside className={`sidebar ${sidebar ? "mobile-open" : ""}`}>
-        <a href="/" className="brand" aria-label="Atlas accueil">
+        <a href="/" className="brand macro-brand" aria-label="Atlas accueil">
           <span className="brand-mark">
             <Activity size={23} />
           </span>
           <span>
-            ATLAS<span className="brand-period">.</span>
-            <small>MACRO TERMINAL</small>
+            Macro<span className="brand-period">.</span>
+            <small>TERMINAL PERSONNEL</small>
           </span>
         </a>
         <div className="workspace-label">
-          WORKSPACE <span>PRO</span>
+          ANALYSE <span>PERSO</span>
         </div>
         <nav>
           {navigation.map((n) => (
@@ -1050,7 +853,10 @@ export default function Terminal() {
             .filter((c) => saved.includes(c.code))
             .slice(0, 5)
             .map((c) => (
-              <button key={c.code} onClick={() => setSelected(c)}>
+              <button
+                key={c.code}
+                onClick={() => router.push(`/devises/${c.currency}`)}
+              >
                 <span>{c.flag}</span>
                 <span>
                   {c.name}
@@ -1064,12 +870,6 @@ export default function Terminal() {
           )}
         </div>
         <div className="sidebar-bottom">
-          <div className="public-card">
-            <ShieldCheck size={17} />
-            <div>
-              Le monde, sans barrière.<small>Accès public. Sans compte.</small>
-            </div>
-          </div>
           <button onClick={() => setModal("sources")}>
             <CircleHelp size={16} /> Sources & méthodologie{" "}
             <ArrowUpRight size={12} />
@@ -1078,7 +878,7 @@ export default function Terminal() {
             <Settings2 size={16} /> Préférences
           </button>
           <div className="sidebar-version">
-            <span className="status-dot" /> ATLAS TERMINAL <span>V1.0</span>
+            <span className="status-dot" /> Macro TERMINAL <span>V1.0</span>
           </div>
         </div>
       </aside>
@@ -1092,7 +892,7 @@ export default function Terminal() {
             >
               <LayoutDashboard size={18} />
             </button>
-            <span>Workspace</span>
+            <span>Terminal</span>
             <ChevronRight size={12} />
             <strong>{navigation.find((n) => n.id === view)?.label}</strong>
           </div>
@@ -1129,37 +929,39 @@ export default function Terminal() {
             </button>
           </div>
         </header>
-        <div className="ticker">
-          <div className="ticker-label">
-            <Activity size={13} /> FX MONITOR
+        {view !== "overview" && (
+          <div className="ticker">
+            <div className="ticker-label">
+              <Activity size={13} /> FX MONITOR
+            </div>
+            {[
+              ["EUR", "USD"],
+              ["GBP", "USD"],
+              ["USD", "JPY"],
+              ["USD", "CHF"],
+              ["AUD", "USD"],
+              ["USD", "CAD"],
+            ].map(([b, q]) => (
+              <button
+                className="ticker-item"
+                key={b + q}
+                onClick={() => {
+                  setBase(b);
+                  setQuote(q);
+                  go("fx");
+                }}
+              >
+                <strong>
+                  {b}/{q}
+                </strong>
+                <span className="mono">
+                  {rate(b, q) ? number(rate(b, q)!, 4) : "—"}
+                </span>
+                <Change value={delta(b, q)} />
+              </button>
+            ))}
           </div>
-          {[
-            ["EUR", "USD"],
-            ["GBP", "USD"],
-            ["USD", "JPY"],
-            ["USD", "CHF"],
-            ["AUD", "USD"],
-            ["USD", "CAD"],
-          ].map(([b, q]) => (
-            <button
-              className="ticker-item"
-              key={b + q}
-              onClick={() => {
-                setBase(b);
-                setQuote(q);
-                go("fx");
-              }}
-            >
-              <strong>
-                {b}/{q}
-              </strong>
-              <span className="mono">
-                {rate(b, q) ? number(rate(b, q)!, 4) : "—"}
-              </span>
-              <Change value={delta(b, q)} />
-            </button>
-          ))}
-        </div>
+        )}
         <main>
           <div className="page-heading">
             <div>
@@ -1168,7 +970,7 @@ export default function Terminal() {
               </div>
               <h1>
                 {view === "overview"
-                  ? "Une longueur d’avance."
+                  ? "Tableau de bord macro."
                   : view === "news"
                     ? "L’information, en perspective."
                     : view === "calendar"
@@ -1181,7 +983,7 @@ export default function Terminal() {
               </h1>
               <p>
                 {view === "overview"
-                  ? "Connectez les données. Comprenez les dynamiques. Suivez l’essentiel."
+                  ? "Croissance, inflation, emploi : comparez les économies derrière chaque devise."
                   : view === "news"
                     ? "Les dernières publications économiques et les annonces des banques centrales."
                     : view === "calendar"
@@ -1220,11 +1022,13 @@ export default function Terminal() {
             <div className="notice demo-notice">
               <Activity size={14} />
               <strong>MODE DÉMONSTRATION</strong>
-              <span>
-                Données fictives pour explorer l’interface. Ne pas utiliser pour
-                une décision financière.
-              </span>
-              <button onClick={() => setDemo(false)}>
+              <span>Données fictives.</span>
+              <button
+                onClick={() => {
+                  setDemo(false);
+                  sessionStorage.setItem("macro-demo", "false");
+                }}
+              >
                 Revenir aux sources <ArrowRight size={12} />
               </button>
             </div>
@@ -1237,10 +1041,13 @@ export default function Terminal() {
                     ? "Connexion aux sources limitée."
                     : `${healthy}/4 sources disponibles.`}
                 </strong>{" "}
-                Les flux indisponibles sont signalés ; aucune valeur n’est
-                inventée.
               </span>
-              <button onClick={() => setDemo(true)}>
+              <button
+                onClick={() => {
+                  setDemo(true);
+                  sessionStorage.setItem("macro-demo", "true");
+                }}
+              >
                 Explorer une démo <ArrowRight size={12} />
               </button>
             </div>
@@ -1257,7 +1064,7 @@ export default function Terminal() {
               </button>
             </div>
           )}
-          {(view === "overview" || view === "fx") && (
+          {view === "fx" && (
             <div className="market-cards">
               {[
                 ["EUR", "USD", "Euro / Dollar"],
@@ -1273,7 +1080,6 @@ export default function Terminal() {
                     onClick={() => {
                       setBase(b);
                       setQuote(q);
-                      if (view === "overview") setShowChart(true);
                     }}
                   >
                     <div className="market-card-top">
@@ -1315,7 +1121,22 @@ export default function Terminal() {
             <>
               <div className="overview-grid">
                 <div className="main-column">
-                  {renderChart()}
+                  <MacroComparison
+                    macro={live.macro.data}
+                    title="Croissance · grandes économies"
+                  />
+                  <MacroComparison
+                    macro={live.macro.data}
+                    initialIndicator="inflation"
+                    title="Inflation · trajectoires comparées"
+                    compact
+                  />
+                  <MacroComparison
+                    macro={live.macro.data}
+                    initialIndicator="unemployment"
+                    title="Emploi · comparaison internationale"
+                    compact
+                  />
                   {renderCalendar()}
                 </div>
                 <div className="right-column">
@@ -1482,13 +1303,6 @@ export default function Terminal() {
               </section>
             </>
           )}
-          <div className="bottom-note">
-            <span>
-              <ShieldCheck size={12} /> L’information pour comprendre. La
-              perspective pour décider.
-            </span>
-            <span>Sources publiques · Sans compte · Sans clé API</span>
-          </div>
         </main>
         <footer className="statusbar">
           <span>
@@ -1499,12 +1313,12 @@ export default function Terminal() {
                 ? "Connexion en cours"
                 : `${healthy}/4 flux disponibles`}
             <i />
-            Données indicatives, sans conseil financier
+            Macro · Terminal personnel
           </span>
           <span>
             {refreshAt
               ? `Vérification ${time(refreshAt)}`
-              : "ATLAS MACRO TERMINAL"}
+              : "Macro TERMINAL PERSONNEL"}
             <i />
             <button onClick={() => setModal("sources")}>
               Sources & délais <ExternalLink size={10} />
@@ -1551,7 +1365,7 @@ export default function Terminal() {
                   <button
                     key={c.code}
                     onClick={() => {
-                      setSelected(c);
+                      router.push(`/devises/${c.currency}`);
                       setSearchOpen(false);
                       setQuery("");
                     }}
@@ -1569,105 +1383,6 @@ export default function Terminal() {
             <div className="search-modal-footer">
               Recherche parmi {countries.length} économies{" "}
               <kbd>ESC pour fermer</kbd>
-            </div>
-          </section>
-        </div>
-      )}
-      {selected && (
-        <div
-          className="modal-backdrop drawer-backdrop"
-          onClick={() => setSelected(null)}
-        >
-          <section
-            className="country-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Économie : ${selected.name}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="drawer-top">
-              <span className="section-eyebrow">FICHE ÉCONOMIQUE</span>
-              <button
-                aria-label="Fermer la fiche pays"
-                onClick={() => setSelected(null)}
-              >
-                <X size={19} />
-              </button>
-            </div>
-            <span className="drawer-flag">{selected.flag}</span>
-            <h2>{selected.name}</h2>
-            <div className="drawer-subtitle">
-              <span className="code-tag">{selected.currency}</span>
-              <span>{selected.region}</span>
-            </div>
-            <p>{selected.description}</p>
-            <button
-              className={`outline-button ${saved.includes(selected.code) ? "following" : ""}`}
-              onClick={() => toggleSave(selected.code)}
-            >
-              {saved.includes(selected.code) ? (
-                <Check size={14} />
-              ) : (
-                <Star size={14} />
-              )}{" "}
-              {saved.includes(selected.code)
-                ? "Dans votre liste de suivi"
-                : "Suivre cette économie"}
-            </button>
-            <h3 className="drawer-section-title">
-              Fondamentaux macroéconomiques
-            </h3>
-            {demo && (
-              <small className="demo-label">
-                VALEURS FICTIVES · DÉMONSTRATION
-              </small>
-            )}
-            <div className="indicator-grid">
-              {indicators.map((i) => {
-                const o = live.macro.data[selected.code]?.[i.key];
-                return (
-                  <div key={i.key}>
-                    <span>{i.label}</span>
-                    <strong className="mono">
-                      {o
-                        ? i.key === "gdp"
-                          ? `${number(o.value / 1e12, 2)} T$`
-                          : i.key === "population"
-                            ? `${number(o.value / 1e6, 1)} M`
-                            : `${number(o.value, 1)} ${i.unit}`
-                        : "—"}
-                    </strong>
-                    <small>
-                      {o ? `Observation ${o.year}` : "Source indisponible"}
-                    </small>
-                    <p>{i.detail}</p>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="bank-card">
-              <span className="eyebrow">BANQUE CENTRALE</span>
-              <strong>{selected.bank}</strong>
-              <p>
-                Consultez les publications officielles dans le fil d’actualités
-                et les prochaines décisions dans le calendrier.
-              </p>
-              <button
-                className="text-button"
-                onClick={() => {
-                  setEventCurrency(selected.currency);
-                  setSelected(null);
-                  go("calendar");
-                }}
-              >
-                Calendrier {selected.currency}
-                <ArrowRight size={13} />
-              </button>
-            </div>
-            <div className="panel-footnote">
-              Banque mondiale · Indicateurs annuels, années de référence
-              indiquées. Les valeurs ne représentent pas des estimations en
-              temps réel.
             </div>
           </section>
         </div>
@@ -1710,11 +1425,11 @@ export default function Terminal() {
             >
               <X size={20} />
             </button>
-            <span className="eyebrow">ATLAS · TRANSPARENCE</span>
+            <span className="eyebrow">Macro · TRANSPARENCE</span>
             <h2>
               {modal === "sources"
                 ? "Les bonnes données. Le bon contexte."
-                : "Votre espace de travail."}
+                : "Préférences."}
             </h2>
             {modal === "sources" ? (
               <>
@@ -1752,7 +1467,7 @@ export default function Terminal() {
                     title: "Fondamentaux par pays",
                     source: "Banque mondiale · World Development Indicators",
                     delay:
-                      "Dernière observation disponible sur 5 ans. Actualisation quotidienne du cache. Chaque indicateur conserve son année de référence.",
+                      "Dernière observation disponible sur 20 ans. Actualisation quotidienne du cache. Chaque indicateur conserve son année de référence.",
                     url: "https://data.worldbank.org",
                   },
                 ].map((s) => (

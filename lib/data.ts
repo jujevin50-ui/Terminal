@@ -185,8 +185,124 @@ export const indicators = [
     unit: "",
     detail: "Population totale",
   },
+  {
+    id: "NY.GDP.PCAP.CD",
+    key: "gdpPerCapita",
+    label: "PIB par habitant",
+    unit: "$",
+    detail: "Production par habitant · USD courants",
+  },
+  {
+    id: "NY.GDP.PCAP.KD.ZG",
+    key: "perCapitaGrowth",
+    label: "Croissance par habitant",
+    unit: "%",
+    detail: "Variation annuelle du PIB réel par habitant",
+  },
+  {
+    id: "NE.EXP.GNFS.ZS",
+    key: "exports",
+    label: "Exportations",
+    unit: "%",
+    detail: "Biens et services · part du PIB",
+  },
+  {
+    id: "NE.IMP.GNFS.ZS",
+    key: "imports",
+    label: "Importations",
+    unit: "%",
+    detail: "Biens et services · part du PIB",
+  },
+  {
+    id: "NE.TRD.GNFS.ZS",
+    key: "trade",
+    label: "Ouverture commerciale",
+    unit: "%",
+    detail: "Exportations + importations · part du PIB",
+  },
+  {
+    id: "NE.GDI.TOTL.ZS",
+    key: "investment",
+    label: "Investissement",
+    unit: "%",
+    detail: "Formation brute de capital · part du PIB",
+  },
+  {
+    id: "NE.CON.PRVT.ZS",
+    key: "consumption",
+    label: "Consommation des ménages",
+    unit: "%",
+    detail: "Dépenses de consommation des ménages · part du PIB",
+  },
+  {
+    id: "NE.CON.GOVT.ZS",
+    key: "government",
+    label: "Consommation publique",
+    unit: "%",
+    detail: "Dépenses de consommation des administrations · part du PIB",
+  },
+  {
+    id: "GC.DOD.TOTL.GD.ZS",
+    key: "debt",
+    label: "Dette publique centrale",
+    unit: "%",
+    detail:
+      "Dette de l’administration centrale · part du PIB ; couverture variable selon pays",
+  },
+  {
+    id: "GC.BAL.CASH.GD.ZS",
+    key: "fiscal",
+    label: "Solde budgétaire",
+    unit: "%",
+    detail: "Solde de trésorerie de l’administration centrale · part du PIB",
+  },
+  {
+    id: "FR.INR.RINR",
+    key: "realRate",
+    label: "Taux d’intérêt réel",
+    unit: "%",
+    detail:
+      "Taux débiteur ajusté du déflateur du PIB ; ce n’est pas le taux directeur",
+  },
+  {
+    id: "FI.RES.TOTL.CD",
+    key: "reserves",
+    label: "Réserves internationales",
+    unit: "$",
+    detail: "Réserves totales, or compris · USD courants",
+  },
+  {
+    id: "BX.KLT.DINV.WD.GD.ZS",
+    key: "fdi",
+    label: "Investissement direct étranger",
+    unit: "%",
+    detail: "Entrées nettes d’IDE · part du PIB",
+  },
+  {
+    id: "SL.TLF.CACT.ZS",
+    key: "participation",
+    label: "Participation au marché du travail",
+    unit: "%",
+    detail: "Population active · 15 ans et plus, estimation OIT",
+  },
+  {
+    id: "NV.IND.TOTL.ZS",
+    key: "industry",
+    label: "Industrie",
+    unit: "%",
+    detail:
+      "Valeur ajoutée de l’industrie, construction comprise · part du PIB",
+  },
+  {
+    id: "NV.SRV.TOTL.ZS",
+    key: "services",
+    label: "Services",
+    unit: "%",
+    detail: "Valeur ajoutée des services · part du PIB",
+  },
 ] as const;
-export type Observation = { value: number; year: string };
+export type Point = { value: number; year: string };
+export type Observation = Point & { history?: Point[] };
 export type Macro = Record<string, Record<string, Observation>>;
 export type News = {
   title: string;
@@ -261,11 +377,20 @@ export function parseMacro(body: unknown): Macro {
     const country = row.countryiso3code;
     if (!key || !country) continue;
     result[country] ??= {};
+    const history = result[country][key]?.history ?? [];
+    if (!history.some((p) => p.year === String(row.date)))
+      history.push({ value: row.value, year: String(row.date) });
+    history.sort((a, b) => Number(a.year) - Number(b.year));
+    if (result[country][key]) result[country][key].history = history;
     if (
       !result[country][key] ||
       Number(row.date) > Number(result[country][key].year)
     )
-      result[country][key] = { value: row.value, year: String(row.date) };
+      result[country][key] = {
+        value: row.value,
+        year: String(row.date),
+        history,
+      };
   }
   return result;
 }

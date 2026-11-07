@@ -61,3 +61,43 @@ test("Une panne HTTP reste explicite dans chaque catégorie, sans données ficti
     global.fetch = original;
   }
 });
+test("La macro garde les lots réussis et leurs historiques en cas de panne partielle", async () => {
+  const original = global.fetch;
+  const urls: string[] = [];
+  try {
+    global.fetch = async (input) => {
+      const url = String(input);
+      urls.push(url);
+      if (!url.includes("NY.GDP.MKTP.KD.ZG"))
+        return new Response("offline", { status: 503 });
+      return Response.json([
+        { pages: 1 },
+        [
+          {
+            countryiso3code: "USA",
+            indicator: { id: "NY.GDP.MKTP.KD.ZG" },
+            date: "2023",
+            value: 2.1,
+          },
+          {
+            countryiso3code: "USA",
+            indicator: { id: "NY.GDP.MKTP.KD.ZG" },
+            date: "2024",
+            value: 0,
+          },
+        ],
+      ]);
+    };
+    const result = await getMacro();
+    assert.equal(urls.length, 4);
+    assert.equal(result.status, "ok");
+    assert.equal(result.data.USA.growth.value, 0);
+    assert.deepEqual(result.data.USA.growth.history, [
+      { year: "2023", value: 2.1 },
+      { year: "2024", value: 0 },
+    ]);
+    assert.ok(urls.every((url) => url.includes("per_page=20000")));
+  } finally {
+    global.fetch = original;
+  }
+});

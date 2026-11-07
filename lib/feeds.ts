@@ -16,7 +16,7 @@ async function remote(url: string, ttl: number) {
     next: { revalidate: ttl },
     signal: AbortSignal.timeout(12000),
     headers: {
-      "User-Agent": "AtlasMacro/1.0 (public economic dashboard)",
+      "User-Agent": "Macro/2.0 (economic dashboard)",
       Accept:
         "application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
     },
@@ -141,15 +141,30 @@ export async function getCalendar() {
 export async function getMacro() {
   return feed(async () => {
     const codes = countries.map((c) => c.code).join(";");
-    const ids = indicators.map((i) => i.id).join(";");
-    return parseMacro(
-      await (
-        await remote(
-          `https://api.worldbank.org/v2/country/${codes}/indicator/${ids}?source=2&format=json&per_page=1000&date=${new Date().getFullYear() - 5}:${new Date().getFullYear()}`,
-          86400,
-        )
-      ).json(),
+    const groups = Array.from(
+      { length: Math.ceil(indicators.length / 6) },
+      (_, i) => indicators.slice(i * 6, i * 6 + 6),
     );
+    const results = await Promise.allSettled(
+      groups.map(async (group) => {
+        const ids = group.map((i) => i.id).join(";");
+        const body = await (
+          await remote(
+            `https://api.worldbank.org/v2/country/${codes}/indicator/${ids}?source=2&format=json&per_page=20000&date=${new Date().getFullYear() - 20}:${new Date().getFullYear()}`,
+            86400,
+          )
+        ).json();
+        if (body?.[0]?.pages > 1) throw new Error("Réponse tronquée");
+        return parseMacro(body);
+      }),
+    );
+    const merged: import("./data").Macro = {};
+    for (const result of results)
+      if (result.status === "fulfilled")
+        for (const [country, observations] of Object.entries(result.value))
+          merged[country] = { ...merged[country], ...observations };
+    if (!Object.keys(merged).length) throw new Error("Macro indisponible");
+    return merged;
   }, {});
 }
 export async function getTerminalData(): Promise<TerminalData> {

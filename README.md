@@ -1,4 +1,4 @@
-# ATLAS — Terminal macroéconomique
+# Macro — Terminal macroéconomique
 
 Terminal public en français, Next.js 16 / React 19 / TypeScript. Sans authentification, base de données ni clé API.
 
@@ -22,7 +22,7 @@ Importer ce dépôt, sélectionner **Next.js**, conserver la racine du dépôt e
 - **Actualités** : RSS BBC Business, BCE, Federal Reserve. Consultation du navigateur toutes les 2 minutes, cache source 120 secondes. Les dépêches restent dans leur langue originale ; liens vers les éditeurs. Les sources valides sont conservées si une autre échoue.
 - **Calendrier** : Forex Factory via `nfs.faireconomy.media/ff_calendar_thisweek.json`, semaine en cours, consultation toutes les 5 minutes. Source non officielle, soumise à disponibilité et limites. Le flux ne fournit généralement pas les résultats effectifs : ils restent « — ». Les jours hors de cette semaine ne sont pas couverts. Horaires Europe/Paris, heure d’été automatique.
 - **Devises** : `api.frankfurter.dev/v1`, cours de référence quotidiens des banques centrales. Historique 100 jours, cache 1 h. Variation entre les deux dernières observations disponibles (pas intrajournalière). Taux croisés calculés via USD. Week-ends et jours fériés : dernier cours publié.
-- **Pays** : `api.worldbank.org/v2`, World Development Indicators. PIB, croissance, inflation, chômage, compte courant et population. Dernière observation non nulle de chaque série dans une fenêtre de 5 ans ; année affichée par indicateur. Cache 24 h. PIB en milliers de milliards USD courants (T$). Le chômage correspond à l’estimation modélisée OIT.
+- **Pays** : `api.worldbank.org/v2`, World Development Indicators. PIB, croissance, inflation, chômage, compte courant et population. Dernière observation non nulle de chaque série dans une fenêtre de 20 ans ; année affichée par indicateur. Cache 24 h. PIB en milliers de milliards USD courants (T$). Le chômage correspond à l’estimation modélisée OIT.
 
 Les fréquences de consultation ne garantissent pas la fréquence de publication ni un délai de diffusion. Aucune donnée manquante n’est fabriquée. Les erreurs sont signalées par source. Un **mode démonstration explicite** permet d’explorer l’interface avec des données fictives ; ces données ne sont jamais utilisées comme fallback automatique.
 
@@ -32,6 +32,14 @@ Vue d’ensemble, graphiques FX 1S/1M/3M, matrice de taux croisés, convertisseu
 
 ## Accès réseau
 
-Autoriser les connexions HTTPS sortantes vers `feeds.bbci.co.uk`, `www.ecb.europa.eu`, `www.federalreserve.gov`, `nfs.faireconomy.media`, `api.frankfurter.dev`, `api.worldbank.org` et les éventuels domaines de redirection. Police web optionnelle : `fonts.googleapis.com`, `fonts.gstatic.com` ; polices système en secours. L’environnement cloud de construction peut bloquer ces domaines même si Vercel y accède. Le build ne dépend d’aucun de ces flux : ils sont chargés à l’exécution, avec timeout.
+Autoriser les connexions HTTPS sortantes vers `feeds.bbci.co.uk`, `www.ecb.europa.eu`, `www.federalreserve.gov`, `nfs.faireconomy.media`, `api.frankfurter.dev`, `api.worldbank.org` et les éventuels domaines de redirection. Les polices DM Sans et IBM Plex Mono sont servies localement avec le site. L’environnement cloud de construction peut bloquer ces domaines même si Vercel y accède. Le build ne dépend d’aucun de ces flux : ils sont chargés à l’exécution, avec timeout.
 
 Le terminal n’est pas un flux de cotations professionnel contractuel. Pour un calendrier sous licence avec consensus et résultats quasi immédiats ou des prix intrajournaliers garantis, intégrer ultérieurement un fournisseur dédié.
+
+## Espace de recherche Macro
+
+L’accueil compare les économies derrière les devises sur la croissance, l’inflation et le chômage. Chaque graphique permet de choisir parmi 22 indicateurs, sélectionner les économies, choisir 5/10/20 ans, zoomer, déplacer la fenêtre, masquer des séries et exporter les observations en CSV. Les valeurs sont accessibles au pointeur, au toucher et aux flèches du clavier lorsque le graphique a le focus. Les années manquantes ne sont pas interpolées.
+
+Les routes `/devises/USD`, `/devises/EUR`, etc. présentent sept onglets : synthèse, croissance et PIB, prix et emploi, commerce et capitaux, finances publiques, structure économique et devise. Elles disposent de tableaux historiques et de comparaisons personnalisables, de performances de change, d’un agenda par devise et de liens vers les publications officielles.
+
+Les 22 séries de la Banque mondiale sont demandées par lots de six avec vingt ans d’historique ; les lots réussis sont conservés en cas d’échec partiel. Les séries manquantes restent absentes. La dette concerne l’administration centrale et le taux réel concerne un taux débiteur ajusté du déflateur du PIB, pas le taux directeur. Les valeurs annuelles des différents pays peuvent porter sur des années différentes.
