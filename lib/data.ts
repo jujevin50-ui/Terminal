@@ -339,6 +339,8 @@ export type TerminalData = {
   calendar: Feed<Event[]>;
   fx: Feed<Fx | null>;
   macro: Feed<Macro>;
+  rates: Feed<Record<string, import("./releases").PolicyRate>>;
+  recent: Feed<import("./releases").ReleaseData>;
 };
 export const currencyFlags: Record<string, string> = Object.fromEntries(
   countries.map((c) => [c.currency, c.flag]),

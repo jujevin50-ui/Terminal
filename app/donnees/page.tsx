@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, RefreshCw, ExternalLink } from "lucide-react";
+import Freshness from "../components/freshness";
 import { useTerminalFeeds } from "../hooks/use-terminal-feeds";
 import { countries, indicators } from "@/lib/data";
 import { formatValue } from "../components/interactive-chart";
@@ -46,7 +47,7 @@ export default function DataQuality() {
           <button
             className="outline-button"
             disabled={loading}
-            onClick={() => refresh(["macro"])}
+            onClick={() => refresh()}
           >
             <RefreshCw size={14} className={loading ? "spinning" : ""} />{" "}
             Vérifier
@@ -57,6 +58,10 @@ export default function DataQuality() {
             Dernier chargement en erreur · observations conservées en cache.
           </div>
         )}
+        <Freshness data={data} />
+        <h2 className="annual-section-title">
+          Historique structurel annuel · Banque mondiale
+        </h2>
         <div className="quality-summary">
           <span>
             {diagnostics.filter((d) => d.status === "ok").length}/

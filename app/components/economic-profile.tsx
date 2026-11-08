@@ -1,5 +1,9 @@
 "use client";
 import Link from "next/link";
+import PolicyRates from "./policy-rates";
+import CurrentReleases from "./current-releases";
+import { aggregateRelease } from "@/lib/releases";
+import { periodLabel, type Frequency } from "@/lib/cadence";
 import { useTerminalFeeds } from "../hooks/use-terminal-feeds";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -59,6 +63,7 @@ const groups = [
     name: "Structure économique",
     keys: ["population", "gdpPerCapita", "industry", "services", "investment"],
   },
+  { id: "policy", name: "Taux directeurs", keys: [] },
   { id: "currency", name: "Devise", keys: [] },
 ];
 const banks: Record<string, string> = {
@@ -80,6 +85,7 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
   const { data, loading, refresh } = useTerminalFeeds();
   const [tab, setTab] = useState("synthesis");
   const [chosen, setChosen] = useState("growth");
+  const [historyFrequency, setHistoryFrequency] = useState<Frequency>("Q");
   const [saved, setSaved] = useState(false);
   const [demo, setDemo] = useState(false);
 
@@ -109,7 +115,22 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
   const fx = live?.fx?.data;
   const group = groups.find((g) => g.id === tab)!;
   const definition = indicators.find((i) => i.key === chosen)!;
-  const history = observations[chosen]?.history ?? [];
+  const nativeSeries = live.recent.data.series.find(
+    (s) => s.country === c.code && s.key === chosen,
+  );
+  const periodSeries = nativeSeries
+    ? aggregateRelease(nativeSeries, historyFrequency)
+    : null;
+  const history =
+    historyFrequency === "A"
+      ? (observations[chosen]?.history ?? []).map((p) => ({
+          ...p,
+          date: p.year,
+        }))
+      : (periodSeries?.history ?? []).map((p) => ({
+          ...p,
+          year: periodLabel(p.date, historyFrequency),
+        }));
   const calendar =
     live?.calendar?.data.filter((e) => e.country === c.currency) ?? [];
   const fxSeries =
@@ -135,8 +156,21 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
   };
   function metric(key: string) {
     const d = indicators.find((i) => i.key === key)!;
-    const o = observations[key];
-    const h = o?.history?.filter((p) => +p.year <= +o.year) ?? [];
+    const current = live.recent.data.series.find(
+      (s) => s.country === c.code && s.key === key,
+    );
+    const o = current
+      ? {
+          value: current.value,
+          year: periodLabel(current.date, current.frequency),
+        }
+      : observations[key];
+    const h = current
+      ? current.history.map((p) => ({
+          value: p.value,
+          year: periodLabel(p.date, current.frequency),
+        }))
+      : (observations[key]?.history ?? []);
     const previous = h.at(-2);
     return (
       <button
@@ -146,20 +180,21 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
         onClick={() => setChosen(key)}
       >
         <div>
-          <span>{d.label}</span>
+          <span>{current?.label ?? d.label}</span>
           <ArrowUpRight size={13} />
         </div>
         <strong className="mono">
           {o ? formatValue(o.value, d.unit, true) : "—"}
         </strong>
         <small>
-          {o?.year ??
-            (loading
+          {o
+            ? `${current ? "" : "Annuel · "}${o.year}`
+            : loading
               ? "Chargement…"
               : live?.macro?.diagnostics?.find((d) => d.key === key)?.status ===
                   "error"
                 ? "Erreur source"
-                : "Non publié")}
+                : "Non publié"}
         </small>
         <p>
           {o && previous ? (
@@ -175,7 +210,9 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
             "—"
           )}
         </p>
-        <span className="metric-definition">{d.detail}</span>
+        <span className="metric-definition">
+          {current?.definition ?? d.detail}
+        </span>
       </button>
     );
   }
@@ -255,13 +292,18 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
             </button>
           ))}
         </nav>
-        {tab !== "currency" ? (
+        {tab === "synthesis" && (
+          <CurrentReleases feed={live.recent} country={c.code} />
+        )}
+        {tab !== "currency" && tab !== "policy" ? (
           <>
             <div className="detail-metrics">{group.keys.map(metric)}</div>
             <div className="profile-chart-grid">
               <MacroComparison
                 key={c.code}
                 macro={macro}
+                recent={live.recent}
+                onFrequencyChange={setHistoryFrequency}
                 selectedIndicator={chosen}
                 onIndicatorChange={setChosen}
                 initialCountries={[
@@ -280,17 +322,24 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
                   <span className="eyebrow">
                     {definition.label.toUpperCase()}
                   </span>
-                  <h3>{definition.detail}</h3>
+                  <h3>
+                    {historyFrequency === "A"
+                      ? definition.detail
+                      : (periodSeries?.definition ??
+                        "Source à cette fréquence non reçue.")}
+                  </h3>
                   <p>
-                    {chosen === "growth"
-                      ? "La croissance réelle mesure l’évolution de la production corrigée de l’inflation. Comparez la tendance sur plusieurs années et les retournements du cycle plutôt qu’une seule observation."
-                      : chosen === "inflation"
-                        ? "La mesure annuelle moyenne diffère du dernier glissement annuel mensuel. Une baisse de l’inflation indique un ralentissement de la hausse des prix, pas nécessairement une baisse des prix."
-                        : chosen === "debt"
-                          ? "La série couvre l’administration centrale. Elle ne représente pas systématiquement la dette de l’ensemble des administrations publiques ; les couvertures nationales peuvent différer."
-                          : chosen === "realRate"
-                            ? "Il s’agit d’un taux débiteur réel ajusté par le déflateur du PIB, et non du taux directeur de la banque centrale. Les couvertures nationales peuvent différer."
-                            : "Les observations sont annuelles. Vérifiez les années de référence avant de comparer les pays ; les séries peuvent avoir des calendriers de publication différents."}
+                    {historyFrequency !== "A"
+                      ? "Les dates désignent les périodes mesurées, et non les dates de publication. Les observations mensuelles et trimestrielles sont issues de séries distinctes de l’historique annuel."
+                      : chosen === "growth"
+                        ? "La croissance réelle mesure l’évolution de la production corrigée de l’inflation. Comparez la tendance sur plusieurs années et les retournements du cycle plutôt qu’une seule observation."
+                        : chosen === "inflation"
+                          ? "La mesure annuelle moyenne diffère du dernier glissement annuel mensuel. Une baisse de l’inflation indique un ralentissement de la hausse des prix, pas nécessairement une baisse des prix."
+                          : chosen === "debt"
+                            ? "La série couvre l’administration centrale. Elle ne représente pas systématiquement la dette de l’ensemble des administrations publiques ; les couvertures nationales peuvent différer."
+                            : chosen === "realRate"
+                              ? "Il s’agit d’un taux débiteur réel ajusté par le déflateur du PIB, et non du taux directeur de la banque centrale. Les couvertures nationales peuvent différer."
+                              : "Les observations sont annuelles. Vérifiez les années de référence avant de comparer les pays ; les séries peuvent avoir des calendriers de publication différents."}
                   </p>
                   <div className="context-bank">
                     <small>BANQUE CENTRALE</small>
@@ -305,7 +354,11 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
                   </div>
                   <a
                     className="text-button"
-                    href={`https://data.worldbank.org/indicator/${definition.id}?locations=${c.iso}`}
+                    href={
+                      historyFrequency === "A"
+                        ? `https://data.worldbank.org/indicator/${definition.id}?locations=${c.iso}`
+                        : (periodSeries?.url ?? undefined)
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -362,6 +415,8 @@ export default function EconomicProfile({ country: c }: { country: Country }) {
               </div>
             </section>
           </>
+        ) : tab === "policy" ? (
+          <PolicyRates feed={live.rates} country={c.code} />
         ) : (
           <>
             <div className="detail-metrics">

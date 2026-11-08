@@ -8,6 +8,7 @@ import {
   type PointerEvent,
 } from "react";
 import { Download, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import { periodLabel, type Frequency } from "@/lib/cadence";
 import {
   axisPrecision,
   datePositions,
@@ -39,6 +40,8 @@ type Props = {
   unit?: string;
   height?: number;
   label?: string;
+  periodFormat?: Frequency;
+  curve?: "linear" | "step";
 };
 export default function InteractiveChart(props: Props) {
   const signature = props.series
@@ -51,6 +54,8 @@ function ChartPlot({
   unit = "%",
   height = 300,
   label = "Comparaison historique",
+  periodFormat,
+  curve = "linear",
 }: Props) {
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
@@ -106,6 +111,44 @@ function ChartPlot({
     right = width - 76;
   const positions = datePositions(dates, left, right);
   const y = (v: number) => 24 + ((max - v) / (max - min)) * 232;
+  const axisLabel = (date: string) => {
+    if (width < 240 && date.length !== 4)
+      return `${date.slice(5, 7)}/${date.slice(2, 4)}`;
+    return periodFormat
+      ? periodLabel(date, periodFormat)
+      : date.length === 4
+        ? date
+        : new Date(`${date}T12:00:00Z`).toLocaleDateString("fr-FR", {
+            day: "2-digit",
+            month: "short",
+            timeZone: "UTC",
+          });
+  };
+  const tickDates: string[] = [];
+  let lastLabelRight = -Infinity;
+  const finalDate = dates.at(-1);
+  const finalLeft = right - (finalDate ? axisLabel(finalDate).length * 6.7 : 0);
+  for (let i = 0; i < dates.length; i++) {
+    const date = dates[i],
+      length = axisLabel(date).length * 6.7;
+    if (
+      i !== 0 &&
+      i !== dates.length - 1 &&
+      i % Math.max(1, Math.ceil(dates.length / (width < 500 ? 3 : 6))) !== 0
+    )
+      continue;
+    const boxLeft = i === 0 ? positions[i] : positions[i] - length / 2;
+    const boxRight =
+      i === 0 ? positions[i] + length : positions[i] + length / 2;
+    if (
+      i === 0 ||
+      i === dates.length - 1 ||
+      (boxLeft >= lastLabelRight + 12 && boxRight <= finalLeft - 12)
+    ) {
+      tickDates.push(date);
+      lastLabelRight = boxRight;
+    }
+  }
   const lookup = active.map((s) => ({
     ...s,
     map: new Map(s.points.map((p) => [p.date, p.value])),
@@ -342,7 +385,9 @@ function ChartPlot({
                   }
                   const command = connected ? "L" : "M";
                   connected = true;
-                  return `${command}${positions[i]},${y(v)}`;
+                  return command === "L" && curve === "step"
+                    ? `H${positions[i]}V${y(v)}`
+                    : `${command}${positions[i]},${y(v)}`;
                 })
                 .join(" ");
               return (
@@ -371,48 +416,25 @@ function ChartPlot({
               );
             })}
           </g>
-          {dates
-            .filter(
-              (_, i) =>
-                i === dates.length - 1 ||
-                i %
-                  Math.max(
-                    1,
-                    Math.ceil(dates.length / (width < 500 ? 3 : 6)),
-                  ) ===
-                  0,
-            )
-            .filter(
-              (date) =>
-                date === dates[0] ||
-                date === dates.at(-1) ||
-                (positions[dates.indexOf(date)] - left >= 45 &&
-                  right - positions[dates.indexOf(date)] >= 45),
-            )
-            .map((date) => (
-              <text
-                key={date}
-                x={positions[dates.indexOf(date)]}
-                y="286"
-                textAnchor={
-                  date === dates[0]
-                    ? "start"
-                    : date === dates.at(-1)
-                      ? "end"
-                      : "middle"
-                }
-                fill="#9aabbe"
-                fontSize="11"
-              >
-                {date.length === 4
-                  ? date
-                  : new Date(`${date}T12:00:00Z`).toLocaleDateString("fr-FR", {
-                      day: "2-digit",
-                      month: "short",
-                      timeZone: "UTC",
-                    })}
-              </text>
-            ))}
+          {tickDates.map((date) => (
+            <text
+              className="chart-tick-label"
+              key={date}
+              x={positions[dates.indexOf(date)]}
+              y="286"
+              textAnchor={
+                date === dates[0]
+                  ? "start"
+                  : date === dates.at(-1)
+                    ? "end"
+                    : "middle"
+              }
+              fill="#9aabbe"
+              fontSize="11"
+            >
+              {axisLabel(date)}
+            </text>
+          ))}
           {selectedDate && values.length > 0 && (
             <g className="chart-selection" data-date={selectedDate}>
               <line
@@ -471,17 +493,19 @@ function ChartPlot({
             style={{ left: tooltipLeft, top: tooltipTop }}
           >
             <strong>
-              {selectedDate.length === 4
-                ? selectedDate
-                : new Date(`${selectedDate}T12:00:00Z`).toLocaleDateString(
-                    "fr-FR",
-                    {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                      timeZone: "UTC",
-                    },
-                  )}
+              {periodFormat
+                ? periodLabel(selectedDate, periodFormat)
+                : selectedDate.length === 4
+                  ? selectedDate
+                  : new Date(`${selectedDate}T12:00:00Z`).toLocaleDateString(
+                      "fr-FR",
+                      {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                        timeZone: "UTC",
+                      },
+                    )}
             </strong>
             {lookup.map((s) => (
               <div key={s.id}>

@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import PolicyRates from "./components/policy-rates";
+import CurrentReleases from "./components/current-releases";
 import { useTerminalFeeds } from "./hooks/use-terminal-feeds";
 import { useRouter } from "next/navigation";
 import MacroComparison from "./components/macro-comparison";
@@ -583,7 +585,7 @@ export default function Terminal() {
             <i className="orange-dot" /> Fort <i className="yellow-dot" /> Moyen{" "}
             <i className="gray-dot" /> Faible
           </span>
-          <span>Forex Factory / Fair Economy · 5 min</span>
+          <span>Forex Factory / Fair Economy · contrôle 1 min</span>
         </div>
       </section>
     );
@@ -806,7 +808,7 @@ export default function Terminal() {
         )}
         <div className="panel-footnote">
           <span>BBC · BCE · Federal Reserve</span>
-          <span>↻ 2 min</span>
+          <span>↻ 1 min</span>
         </div>
       </section>
     );
@@ -827,6 +829,9 @@ export default function Terminal() {
           ANALYSE <span>PERSO</span>
         </div>
         <nav>
+          <Link className="nav-item" href="/taux">
+            <TrendingUp size={17} /> Taux directeurs
+          </Link>
           {navigation.map((n) => (
             <button
               className={view === n.id ? "nav-item active" : "nav-item"}
@@ -1044,7 +1049,7 @@ export default function Terminal() {
                 Revenir aux sources <ArrowRight size={12} />
               </button>
             </div>
-          ) : !loading && healthy < 4 ? (
+          ) : !loading && healthy < 6 ? (
             <div className="notice">
               <Radio size={14} />
               <span>
@@ -1053,7 +1058,7 @@ export default function Terminal() {
                     ? cached
                       ? "Dernières données conservées · actualisation indisponible."
                       : "Connexion aux sources limitée."
-                    : `${healthy}/4 sources disponibles.`}
+                    : `${healthy}/6 sources disponibles.`}
                 </strong>{" "}
               </span>
               <button
@@ -1071,8 +1076,8 @@ export default function Terminal() {
               {loading
                 ? "Connexion aux sources publiques…"
                 : `${healthy} sources connectées`}
-              <span>·</span>Actualités 2 min <span>·</span> FX quotidien{" "}
-              <span>·</span> Macro annuel{" "}
+              <span>·</span>Actualités 1 min <span>·</span> Taux directeurs 1
+              min · Conjoncture M/Q <span>·</span> Historique annuel{" "}
               <button onClick={() => setModal("sources")}>
                 Détails <CircleHelp size={11} />
               </button>
@@ -1133,20 +1138,24 @@ export default function Terminal() {
           )}
           {view === "overview" && (
             <>
+              <PolicyRates feed={live.rates} compact />
               <div className="overview-grid">
                 <div className="main-column">
                   <MacroComparison
                     macro={live.macro.data}
+                    recent={live.recent}
                     title="Croissance · grandes économies"
                   />
                   <MacroComparison
                     macro={live.macro.data}
+                    recent={live.recent}
                     initialIndicator="inflation"
                     title="Inflation · trajectoires comparées"
                     compact
                   />
                   <MacroComparison
                     macro={live.macro.data}
+                    recent={live.recent}
                     initialIndicator="unemployment"
                     title="Emploi · comparaison internationale"
                     compact
@@ -1155,6 +1164,7 @@ export default function Terminal() {
                 </div>
                 <div className="right-column">
                   {renderNews()}
+                  <CurrentReleases feed={live.recent} />
                   <section className="next-release">
                     <div className="eyebrow">
                       <span className="orange-dot" /> À SURVEILLER
@@ -1328,7 +1338,7 @@ export default function Terminal() {
               ? "Démonstration"
               : loading
                 ? "Connexion en cours"
-                : `${healthy}/4 flux disponibles`}
+                : `${healthy}/6 flux disponibles`}
             <i />
             Macro · Terminal personnel
           </span>
@@ -1460,7 +1470,7 @@ export default function Terminal() {
                     title: "Actualités économiques",
                     source: "BBC Business, BCE, Federal Reserve",
                     delay:
-                      "Consultation toutes les 2 minutes. Publications affichées dans leur langue d’origine.",
+                      "Consultation toutes les minutes. Publications affichées dans leur langue d’origine.",
                     url: "https://feeds.bbci.co.uk/news/business/rss.xml",
                   },
                   {
@@ -1468,7 +1478,7 @@ export default function Terminal() {
                     title: "Calendrier économique",
                     source: "Forex Factory / Fair Economy",
                     delay:
-                      "Semaine en cours, consultation toutes les 5 minutes. Le flux peut ne pas fournir les résultats publiés ; « — » signifie non fourni.",
+                      "Semaine en cours, consultation toutes les minutes. Le flux peut ne pas fournir les résultats publiés ; « — » signifie non fourni.",
                     url: "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
                   },
                   {
@@ -1484,8 +1494,24 @@ export default function Terminal() {
                     title: "Fondamentaux par pays",
                     source: "Banque mondiale · World Development Indicators",
                     delay:
-                      "Dernière observation disponible sur 20 ans. Actualisation quotidienne du cache. Chaque indicateur conserve son année de référence.",
+                      "Dernière observation disponible sur 20 ans. Contrôle horaire du cache. Chaque indicateur conserve son année de référence.",
                     url: "https://data.worldbank.org",
+                  },
+                  {
+                    key: "rates",
+                    title: "Taux directeurs",
+                    source: "BRI · Federal Reserve via FRED",
+                    delay:
+                      "Contrôle navigateur chaque minute, cache fournisseur 5 minutes. Référence nationale BRI ou fourchette cible Fed. La date d’observation est affichée ; la disponibilité dépend du diffuseur.",
+                    url: "https://data.bis.org/topics/CBPOL",
+                  },
+                  {
+                    key: "recent",
+                    title: "Conjoncture mensuelle et trimestrielle",
+                    source: "FRED · OCDE · Eurostat",
+                    delay:
+                      "Contrôle toutes les 5 minutes, cache source 15 minutes. Fréquence native des publications, pas d’interpolation des valeurs annuelles. Les séries anciennes ou manquantes sont signalées.",
+                    url: "https://fred.stlouisfed.org",
                   },
                 ].map((s) => (
                   <div className="source-card" key={s.key}>

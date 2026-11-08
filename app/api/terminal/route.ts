@@ -1,3 +1,4 @@
+import { getPolicyRates, getRecent } from "@/lib/current-feeds";
 import {
   getNews,
   getCalendar,
@@ -14,6 +15,8 @@ export async function GET(request: Request) {
     fx: getFx,
     macro: getMacro,
     catalog: getIndicatorCatalog,
+    rates: getPolicyRates,
+    recent: getRecent,
   };
   if (!section || !(section in handlers))
     return Response.json({ error: "Section inconnue" }, { status: 400 });
@@ -22,7 +25,7 @@ export async function GET(request: Request) {
     headers: {
       "Cache-Control":
         result.status === "ok"
-          ? "public, s-maxage=60, stale-while-revalidate=120"
+          ? "public, s-maxage=30, must-revalidate"
           : "no-store",
     },
   });

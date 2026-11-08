@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
+import { periodLabel, type Frequency } from "../lib/cadence";
 import { demoData } from "../lib/demo";
 import { countries, indicators } from "../lib/data";
 const fixture = demoData();
@@ -18,7 +19,7 @@ async function mount(page: Page) {
     return route.fulfill({ json: fixture[section] });
   });
   await page.goto("/");
-  await expect(page.getByText("4 sources connectées")).toBeVisible();
+  await expect(page.getByText("6 sources connectées")).toBeVisible();
 }
 async function checkPoints(page: Page, chart: Locator) {
   const points = await chart
@@ -46,7 +47,12 @@ async function checkPoints(page: Page, chart: Locator) {
       "data-date",
       point.date,
     );
-    await expect(chart.locator(".chart-tooltip strong")).toHaveText(point.date);
+    await expect(chart.locator(".chart-tooltip strong")).toHaveText(
+      periodLabel(
+        point.date,
+        (await chart.getAttribute("data-frequency")) as Frequency,
+      ),
+    );
     const line = await chart.locator(".chart-selection line").evaluate((el) => {
       const svg = el.closest("svg")!;
       return new DOMPoint(
@@ -62,7 +68,8 @@ test("Survol exact de chaque point à quatre largeurs, après zoom et transforma
 }) => {
   await mount(page);
   const chart = page.locator(".macro-comparison").first();
-  await chart.getByRole("button", { name: "20A", exact: true }).click();
+  await chart.getByRole("combobox", { name: /Fréquence/ }).selectOption("Q");
+  await chart.getByRole("button", { name: "5A", exact: true }).click();
   for (const width of [1440, 1024, 768, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.waitForTimeout(300);
@@ -104,7 +111,9 @@ test("Tous les indicateurs peuvent être sélectionnés et les courbes réactiv�
   await mount(page);
   const chart = page.locator(".macro-comparison").first();
   for (const indicator of indicators) {
-    await chart.getByRole("combobox").selectOption(indicator.key);
+    await chart
+      .getByRole("combobox", { name: /Indicateur/ })
+      .selectOption(indicator.key);
     await expect(chart.getByRole("heading")).toHaveText(
       `${indicator.label} · comparaison`,
     );
@@ -115,7 +124,13 @@ test("Tous les indicateurs peuvent être sélectionnés et les courbes réactiv�
       .locator("circle[data-date]")
       .last()
       .getAttribute("data-date");
-    expect(latest).toBe("2024");
+    expect(latest).toBe(
+      ["growth", "inflation", "unemployment"].includes(indicator.key)
+        ? fixture.recent.data.series.find(
+            (s) => s.country === "USA" && s.key === indicator.key,
+          )!.date
+        : fixture.macro.data.USA[indicator.key].year,
+    );
   }
   for (const button of await chart.locator(".chart-legend button").all())
     await button.click();
@@ -144,7 +159,9 @@ test("La fiche synchronise sélection, historique et contexte ; les comparaisons
     .getByRole("button", { name: "Croissance & PIB", exact: true })
     .click();
   const chart = page.locator(".macro-comparison");
-  await chart.getByRole("combobox").selectOption("gdpPerCapita");
+  await chart
+    .getByRole("combobox", { name: /Indicateur/ })
+    .selectOption("gdpPerCapita");
   await expect(
     page.getByRole("heading", { name: "Historique · PIB par habitant" }),
   ).toBeVisible();
@@ -330,4 +347,125 @@ test("L’infobulle des douze économies reste dans le graphique sur mobile", as
     path: "/tmp/macro-mobile-tooltip.png",
     fullPage: false,
   });
+});
+test("Périodes mensuelles, trimestrielles et semestrielles, sans transformer l’annuel en mensuel", async ({
+  page,
+}) => {
+  await mount(page);
+  const growth = page.locator(".macro-comparison").first();
+  await expect(growth).toHaveAttribute("data-frequency", "Q");
+  await expect(
+    growth
+      .getByRole("combobox", { name: /Fréquence/ })
+      .locator('option[value="M"]'),
+  ).toBeDisabled();
+  const inflation = page.locator(".macro-comparison").nth(1);
+  await expect(inflation).toHaveAttribute("data-frequency", "M");
+  await inflation
+    .getByRole("combobox", { name: /Fréquence/ })
+    .selectOption("Q");
+  await expect(inflation).toHaveAttribute("data-frequency", "Q");
+  await expect(
+    inflation.locator(".comparison-values small").first(),
+  ).toContainText(/^T/);
+  await inflation
+    .getByRole("combobox", { name: /Fréquence/ })
+    .selectOption("S");
+  await expect(
+    inflation.locator(".comparison-values small").first(),
+  ).toContainText(/^S/);
+  await expect(inflation.locator(".panel-footnote")).toContainText(
+    "pas une publication semestrielle officielle",
+  );
+  await inflation
+    .getByRole("combobox", { name: /Indicateur/ })
+    .selectOption("debt");
+  await expect(inflation).toHaveAttribute("data-frequency", "A");
+  await expect(
+    inflation
+      .getByRole("combobox", { name: /Fréquence/ })
+      .locator('option[value="M"]'),
+  ).toBeDisabled();
+  await page
+    .getByRole("link", { name: "Taux directeurs", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/taux$/);
+  await expect(page.locator(".policy-grid button")).toHaveCount(12);
+  await expect(
+    page.getByRole("heading", {
+      name: "Fraîcheur et actualisation automatique",
+    }),
+  ).toBeVisible();
+});
+test("Les taux se réactualisent à la minute, se suspendent sur onglet masqué et reprennent au retour", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const counts: Record<string, number> = {};
+  await page.route("**/api/terminal?section=*", (route) => {
+    const section = new URL(route.request().url()).searchParams.get(
+      "section",
+    ) as keyof typeof fixture;
+    counts[section] = (counts[section] ?? 0) + 1;
+    const result = JSON.parse(JSON.stringify(fixture[section]));
+    if (section === "rates")
+      result.data.USA.value = counts[section] > 1 ? 5 : 2;
+    return route.fulfill({ json: result });
+  });
+  await page.goto("/");
+  await expect(page.getByText("6 sources connectées")).toBeVisible();
+  await expect(
+    page.locator(".policy-grid button").first().locator("strong"),
+  ).toContainText("2");
+  await page.clock.fastForward(61000);
+  await expect.poll(() => counts.rates).toBe(2);
+  await expect(
+    page.locator(".policy-grid button").first().locator("strong"),
+  ).toContainText("5");
+  expect(counts.macro).toBe(1);
+  expect(counts.recent).toBe(1);
+  await page.evaluate(() =>
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    }),
+  );
+  await page.clock.fastForward(60000);
+  expect(counts.rates).toBe(2);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => counts.rates).toBe(3);
+  await expect.poll(() => counts.macro).toBe(2);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: "/tmp/macro-native-home.png", fullPage: true });
+});
+test("Les libellés temporels restent lisibles et séparés sur les graphiques mensuels", async ({
+  page,
+}) => {
+  await mount(page);
+  for (const width of [1440, 1024, 768, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.waitForTimeout(200);
+    const charts = page.locator(".interactive-chart");
+    for (const chart of await charts.all()) {
+      const labels = await chart
+        .locator(".chart-tick-label")
+        .evaluateAll((nodes) =>
+          nodes.map((n) => {
+            const r = n.getBoundingClientRect();
+            return { left: r.left, right: r.right, text: n.textContent };
+          }),
+        );
+      for (let i = 1; i < labels.length; i++)
+        expect(
+          labels[i].left - labels[i - 1].right,
+          labels.map((l) => l.text).join(", "),
+        ).toBeGreaterThanOrEqual(2);
+    }
+  }
 });

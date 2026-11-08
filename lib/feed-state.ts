@@ -40,3 +40,46 @@ export function retainMacroSeries(
   }
   return { ...incoming, data: merged, ...(retained ? { stale: true } : {}) };
 }
+export function retainReleases(
+  previous: Feed<import("./releases").ReleaseData>,
+  incoming: Feed<import("./releases").ReleaseData>,
+) {
+  if (incoming.status === "error")
+    return {
+      ...retainLastGood(previous, incoming),
+      data: { ...previous.data, errors: incoming.data.errors },
+    };
+  const rows = [...incoming.data.series];
+  let retained = false;
+  for (const error of incoming.data.errors) {
+    const old = previous.data.series.find(
+      (s) => s.country === error.country && s.key === error.key,
+    );
+    if (
+      old &&
+      !rows.some((s) => s.country === old.country && s.key === old.key)
+    ) {
+      rows.push(old);
+      retained = true;
+    }
+  }
+  return {
+    ...incoming,
+    data: { ...incoming.data, series: rows },
+    ...(retained ? { stale: true } : {}),
+  };
+}
+export function retainPolicyRates(
+  previous: Feed<Record<string, import("./releases").PolicyRate>>,
+  incoming: Feed<Record<string, import("./releases").PolicyRate>>,
+) {
+  if (incoming.status === "error") return retainLastGood(previous, incoming);
+  const missing = Object.keys(previous.data).filter(
+    (code) => !incoming.data[code],
+  );
+  return {
+    ...incoming,
+    data: { ...previous.data, ...incoming.data },
+    ...(missing.length ? { stale: true } : {}),
+  };
+}

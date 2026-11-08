@@ -1,3 +1,5 @@
+import { getPolicyRates, getRecent } from "./current-feeds";
+import { cadence } from "./cadence";
 import { XMLParser } from "fast-xml-parser";
 import {
   countries,
@@ -63,7 +65,9 @@ export async function getNews(): Promise<Feed<News[]>> {
     ];
     const results = await Promise.allSettled(
       sources.map(async (source) => {
-        const xml = parser.parse(await (await remote(source.url, 120)).text());
+        const xml = parser.parse(
+          await (await remote(source.url, cadence.news.ttl)).text(),
+        );
         let items = xml.rss?.channel?.item ?? xml.feed?.entry ?? [];
         if (!Array.isArray(items)) items = [items];
         return items
@@ -105,10 +109,10 @@ export async function getFx(): Promise<Feed<Fx | null>> {
     start.setDate(start.getDate() - 100);
     const base = "https://api.frankfurter.dev/v1";
     const [latest, historical] = await Promise.all([
-      remote(`${base}/latest?base=USD`, 3600).then((r) => r.json()),
+      remote(`${base}/latest?base=USD`, cadence.fx.ttl).then((r) => r.json()),
       remote(
         `${base}/${start.toISOString().slice(0, 10)}..${end.toISOString().slice(0, 10)}?base=USD`,
-        3600,
+        cadence.fx.ttl,
       ).then((r) => r.json()),
     ]);
     if (
@@ -141,7 +145,7 @@ export async function getCalendar() {
         await (
           await remote(
             "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
-            300,
+            cadence.calendar.ttl,
           )
         ).json(),
       ),
@@ -160,7 +164,7 @@ export async function getMacro(): Promise<Feed<import("./data").Macro>> {
         const indicator = indicators[cursor++];
         try {
           const url = `https://api.worldbank.org/v2/country/${codes}/indicator/${indicator.id}?source=2&format=json&per_page=1000&date=${new Date().getFullYear() - 20}:${new Date().getFullYear()}`;
-          const body = await (await remote(url, 86400)).json();
+          const body = await (await remote(url, cadence.macro.ttl)).json();
           if (
             !Array.isArray(body) ||
             !body[0] ||
@@ -222,13 +226,15 @@ export async function getMacro(): Promise<Feed<import("./data").Macro>> {
   };
 }
 export async function getTerminalData(): Promise<TerminalData> {
-  const [news, calendar, fx, macro] = await Promise.all([
+  const [news, calendar, fx, macro, rates, recent] = await Promise.all([
     getNews(),
     getCalendar(),
     getFx(),
     getMacro(),
+    getPolicyRates(),
+    getRecent(),
   ]);
-  return { news, calendar, fx, macro };
+  return { news, calendar, fx, macro, rates, recent };
 }
 
 export async function getIndicatorCatalog(): Promise<

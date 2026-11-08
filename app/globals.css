@@ -3419,3 +3419,239 @@ tbody tr:last-child td {
 .impact-high {
   color: var(--orange);
 }
+.policy-panel {
+  margin-bottom: 22px;
+}
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding: 17px;
+}
+.policy-grid > button,
+.release-grid > button {
+  border: 1px solid #354253;
+  background: linear-gradient(130deg, #1a2430, #151b23);
+  padding: 14px;
+  text-align: left;
+  border-radius: 5px;
+  min-width: 0;
+}
+.policy-grid > button.selected,
+.release-grid > button.selected {
+  border-color: #b28b5c;
+  background: #29251f;
+}
+.policy-grid > button > span {
+  font-size: 12px;
+  color: #c5d1df;
+}
+.policy-grid strong {
+  display: block;
+  font-size: 20px;
+  font-weight: 450;
+  margin: 12px 0;
+  line-height: 1.4;
+}
+.policy-grid small {
+  display: block;
+  font-size: 9px;
+  color: #8ca0ba;
+  margin: 6px 0;
+  line-height: 1.6;
+}
+.policy-grid em,
+.release-grid em,
+.late-observation {
+  display: block;
+  color: #d4aa78 !important;
+  font-size: 9px;
+  font-style: normal;
+  line-height: 1.7;
+}
+.single-policy {
+  grid-template-columns: 1fr;
+}
+.single-policy > button {
+  max-width: 420px;
+}
+.rate-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 15px 18px;
+  font-size: 10px;
+  color: #90a5bf;
+}
+.rate-meta a {
+  color: var(--orange);
+}
+.release-panel {
+  margin-bottom: 22px;
+}
+.release-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+.release-grid span {
+  display: block;
+  font-size: 11px;
+  color: #a4b6cd;
+  line-height: 1.6;
+}
+.release-grid strong {
+  display: block;
+  font-size: 22px;
+  font-weight: 450;
+  margin: 12px 0;
+}
+.release-grid small {
+  font-size: 9px;
+  color: #8ba0bc;
+  line-height: 1.7;
+}
+.right-column .release-grid {
+  grid-template-columns: 1fr;
+  padding: 13px;
+}
+.right-column .release-grid strong {
+  font-size: 20px;
+}
+.right-column .release-panel .panel-title {
+  padding: 0 12px;
+}
+.right-column .release-panel .panel-title h2 {
+  font-size: 10px;
+}
+.right-column .release-panel .panel-title .tiny-tag {
+  display: none;
+}
+.freshness-panel {
+  margin: 25px 0;
+}
+.freshness-panel table {
+  min-width: 980px;
+}
+.freshness-panel td,
+.freshness-panel th {
+  padding: 15px;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.freshness-panel td > small {
+  display: block;
+  font-size: 10px;
+}
+.coverage-notes {
+  padding: 20px;
+  border-top: 1px solid #354253;
+  color: #94a8c2;
+  font-size: 11px;
+  line-height: 1.9;
+}
+.coverage-notes > strong {
+  display: block;
+  color: #cfdae7;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.coverage-notes p + p {
+  margin-top: 12px;
+}
+.annual-section-title {
+  font-size: 19px;
+  font-weight: 500;
+  margin: 30px 0 20px;
+}
+.comparison-controls select:nth-child(2) {
+  flex: 0 1 150px;
+  min-width: 115px;
+}
+.comparison-values small {
+  display: block;
+  line-height: 1.7;
+}
+.release-availability td,
+.release-availability th {
+  white-space: nowrap;
+}
+@media (max-width: 1200px) {
+  .policy-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .policy-grid strong {
+    font-size: 18px;
+  }
+  .release-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .single-policy {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .policy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    padding: 12px;
+  }
+  .policy-grid > button {
+    padding: 12px;
+  }
+  .policy-grid strong {
+    font-size: 18px;
+  }
+  .policy-grid small {
+    font-size: 8px;
+  }
+  .policy-grid em {
+    font-size: 8px;
+  }
+  .single-policy {
+    grid-template-columns: 1fr;
+  }
+  .policy-panel .panel-title h2 {
+    font-size: 10px;
+    white-space: normal;
+  }
+  .policy-panel .panel-title .tiny-tag {
+    display: none;
+  }
+  .rate-meta {
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 9px;
+    padding: 13px;
+  }
+  .release-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    padding: 12px;
+  }
+  .release-grid > button {
+    padding: 12px;
+  }
+  .release-grid strong {
+    font-size: 19px;
+  }
+  .release-grid span {
+    font-size: 10px;
+  }
+  .release-grid small {
+    font-size: 8px;
+  }
+  .right-column .release-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .comparison-controls select:nth-child(2) {
+    flex: 1;
+    min-width: 100px;
+    max-width: 140px;
+  }
+  .annual-section-title {
+    font-size: 16px;
+  }
+}

@@ -126,6 +126,81 @@ export function demoData(): TerminalData {
     }
   }
   return {
+    rates: {
+      status: "ok",
+      fetchedAt: iso,
+      data: Object.fromEntries(
+        countries.map((c, index) => [
+          c.code,
+          {
+            country: c.code,
+            value: 2 + index * 0.25,
+            date: iso.slice(0, 10),
+            lastChange: iso.slice(0, 10),
+            source: "Démonstration",
+            url: "",
+            definition: "Valeurs fictives pour la démonstration.",
+            history: Array.from({ length: 24 }, (_, i) => ({
+              date: new Date(
+                Date.UTC(
+                  now.getUTCFullYear() - 1,
+                  now.getUTCMonth() - 23 + i,
+                  1,
+                ),
+              )
+                .toISOString()
+                .slice(0, 10),
+              value: 2 + index * 0.25 + Math.floor((23 - i) / 6) * 0.25,
+            })),
+          },
+        ]),
+      ),
+    },
+    recent: {
+      status: "ok",
+      fetchedAt: iso,
+      data: {
+        errors: [],
+        series: countries.flatMap((c, index) =>
+          ["growth", "inflation", "unemployment"].map((key, k) => {
+            const frequency =
+              key === "growth" ? ("Q" as const) : ("M" as const);
+            const history = Array.from({ length: 36 }, (_, i) => ({
+              date: new Date(
+                Date.UTC(
+                  now.getUTCFullYear(),
+                  (frequency === "Q"
+                    ? Math.floor(now.getUTCMonth() / 3) * 3
+                    : now.getUTCMonth()) -
+                    (36 - i) * (frequency === "Q" ? 3 : 1),
+                  1,
+                ),
+              )
+                .toISOString()
+                .slice(0, 10),
+              value: 2 + k + index * 0.1 + Math.sin(i * 0.35),
+            }));
+            return {
+              country: c.code,
+              key,
+              label:
+                key === "growth"
+                  ? "Croissance réelle du PIB · glissement annuel"
+                  : key === "inflation"
+                    ? "Inflation · glissement annuel"
+                    : "Taux de chômage",
+              frequency,
+              unit: "%",
+              ...history.at(-1)!,
+              history,
+              source: "Démonstration",
+              url: "",
+              definition: "Valeurs fictives pour la démonstration.",
+            };
+          }),
+        ),
+      },
+    },
     news: { status: "ok", data: news, fetchedAt: iso },
     calendar: { status: "ok", data: calendar, fetchedAt: iso },
     fx: {
